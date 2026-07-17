@@ -30,6 +30,10 @@ Use History to preview a contacted-person CSV. CSV preview validates rows before
 
 Open a candidate and upload a lawful PDF manually. The app validates the PDF signature, rejects encrypted or malformed files, stores the file under `papers/`, records its SHA-256 hash, and extracts text to ignored local cache for later analysis.
 
+## Phase 1 Manual Analysis and Drafts
+
+Open a paper, enter a manual analysis, and include at least one evidence-backed claim. Draft generation uses that evidence and Arnav's local profile. Draft approval is local only and is blocked unless a verified official email exists and the required resume and portfolio PDFs are valid.
+
 Later phases will document:
 
 - Profile setup.

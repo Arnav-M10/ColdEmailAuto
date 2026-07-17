@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <h2>{{ draft.subject }}</h2>
+        <p>{{ draft.word_count }} words excluding signoff. Local approval only.</p>
+      </div>
+      <span class="status-pill">{{ "Approved" if draft.approved_by_user else "Needs review" }}</span>
+    </div>
+    <pre class="text-preview">{{ draft.body_text }}</pre>
+  </section>
+
+  <section class="panel secondary-panel">
+    <div class="panel-header">
+      <div>
+        <h2>Approval checks</h2>
+        <p>Approval remains blocked until recipient, evidence, wording, and attachments are ready.</p>
+      </div>
+    </div>
+    {% if approval_errors %}
+      <div class="warning-list">
+        {% for error in approval_errors %}
+          <div>{{ error }}</div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <form method="post" action="/drafts/{{ draft.id }}/approve" class="form-grid">
+        <input type="hidden" name="csrf" value="{{ csrf_token }}">
+        <label class="wide checkbox-row">
+          <input type="checkbox" name="approval_ack" value="yes" required>
+          I reviewed the recipient, technical details, wording, and attachments. Mark this local draft approved only. Do not send.
+        </label>
+        <div class="form-actions wide"><button type="submit">Approve local draft</button></div>
+      </form>
+    {% endif %}
+  </section>
+{% endblock %}

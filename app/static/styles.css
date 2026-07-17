@@ -434,6 +434,16 @@ th {
   flex-wrap: wrap;
 }
 
+.checkbox-row {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+}
+
+.checkbox-row input {
+  width: auto;
+  margin-top: 4px;
+}
+
 .event-list {
   display: grid;
   gap: 10px;

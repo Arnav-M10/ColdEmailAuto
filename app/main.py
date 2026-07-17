@@ -13,6 +13,7 @@ from app.config import get_settings
 from app.db.session import check_database, initialize_database
 from app.observability.logging import configure_logging
 from app.routes.candidates import router as candidates_router
+from app.routes.drafts import router as drafts_router
 from app.routes.papers import router as papers_router
 from app.safety import assert_no_send_capability
 from app.security.headers import apply_security_headers
@@ -43,6 +44,7 @@ def create_app() -> FastAPI:
     app.state.templates = templates
     app.state.base_context = base_context
     app.include_router(candidates_router)
+    app.include_router(drafts_router)
     app.include_router(papers_router)
 
     @app.middleware("http")
@@ -103,15 +105,6 @@ def create_app() -> FastAPI:
             template_name="settings.html",
             active_page="settings",
             page_title="Settings",
-        )
-
-    @app.get("/drafts", response_class=HTMLResponse)
-    def drafts_page(request: Request) -> HTMLResponse:
-        return render_page(
-            request=request,
-            template_name="drafts.html",
-            active_page="drafts",
-            page_title="Drafts",
         )
 
     return app

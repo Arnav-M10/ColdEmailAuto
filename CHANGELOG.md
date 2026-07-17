@@ -21,3 +21,4 @@ All notable project changes will be documented here.
 - Phase 1 manual tracker schema and candidate status transition validation.
 - Manual candidate CRUD, official email provenance, duplicate checks, and contacted CSV preview.
 - Safe manual PDF upload, hashing, storage, and text extraction.
+- Manual paper analysis, evidence entry, conservative draft generation, and local draft approval checks.

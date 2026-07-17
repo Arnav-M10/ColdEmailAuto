@@ -19,4 +19,54 @@
     <div class="panel-header"><div><h2>Extracted text preview</h2><p>Used later for manual analysis and evidence mapping.</p></div></div>
     <pre class="text-preview">{{ parsed_text or "No extractable text." }}</pre>
   </section>
+
+  <section class="panel secondary-panel">
+    <div class="panel-header"><div><h2>Manual analysis</h2><p>Every paper-specific claim needs evidence.</p></div></div>
+    <form class="form-grid" method="post" action="/papers/{{ paper.id }}/analysis">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <label class="wide">Paper title <input name="title" value="{{ paper.original_filename }}" required></label>
+      <label class="wide">Research question <textarea name="research_question" rows="2" required></textarea></label>
+      <label class="wide">Methods <textarea name="methods" rows="2" required></textarea></label>
+      <label class="wide">Results <textarea name="results" rows="2" required></textarea></label>
+      <label class="wide">Connection to Arnav <textarea name="connection_to_arnav" rows="2" required></textarea></label>
+      <label class="wide">Claim for email <input name="claim" required></label>
+      <label class="wide">Evidence text <textarea name="evidence_text" rows="3" required></textarea></label>
+      <label>Page number <input name="page_number" type="number" min="1" value="1" required></label>
+      <label>Section <input name="section_name" value="Unknown"></label>
+      <label>Classification
+        <select name="classification">
+          <option>EXPLICIT</option>
+          <option>STRONG_INFERENCE</option>
+          <option>SPECULATIVE</option>
+        </select>
+      </label>
+      <label>Confidence <input name="confidence" type="number" min="0" max="1" step="0.05" value="0.8"></label>
+      <div class="form-actions wide"><button type="submit">Save analysis</button></div>
+    </form>
+  </section>
+
+  {% if analyses %}
+    <section class="panel secondary-panel">
+      <div class="panel-header"><div><h2>Saved analyses</h2><p>Generate a local draft only after reviewing the evidence.</p></div></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Title</th><th>Confidence</th><th></th></tr></thead>
+          <tbody>
+            {% for analysis in analyses %}
+              <tr>
+                <td>{{ analysis.title }}</td>
+                <td>{{ analysis.confidence }}</td>
+                <td>
+                  <form method="post" action="/analyses/{{ analysis.id }}/draft">
+                    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+                    <button type="submit">Generate draft</button>
+                  </form>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  {% endif %}
 {% endblock %}

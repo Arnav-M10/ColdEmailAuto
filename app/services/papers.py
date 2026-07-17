@@ -97,6 +97,7 @@ def store_manual_pdf(
         parsed_text_path=str(text_path.relative_to(root)),
     )
     session.add(paper_file)
+    session.flush()
     record_event(
         session,
         candidate_id=candidate.id,

@@ -1,10 +1,20 @@
 from typing import cast
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.models.paper import EvidenceClassification
+from app.security.csrf import csrf_token, validate_csrf_token
+from app.services.analysis import (
+    create_manual_analysis,
+    evidence_for_analysis,
+    get_analysis,
+    list_analyses_for_paper,
+)
+from app.services.candidates import get_candidate
+from app.services.drafting import generate_manual_draft
 from app.services.papers import get_paper_file, list_paper_files, read_parsed_text
 
 router = APIRouter()
@@ -47,5 +57,72 @@ def paper_detail(
             "page_title": paper_file.original_filename,
             "paper": paper_file,
             "parsed_text": read_parsed_text(paper_file)[:4000],
+            "analyses": list_analyses_for_paper(db, paper_file.id),
+            "csrf_token": csrf_token(),
         },
     )
+
+
+@router.post("/papers/{paper_file_id}/analysis")
+def paper_add_analysis(
+    paper_file_id: int,
+    csrf: str = Form(...),
+    title: str = Form(...),
+    research_question: str = Form(...),
+    methods: str = Form(...),
+    results: str = Form(...),
+    connection_to_arnav: str = Form(...),
+    claim: str = Form(...),
+    evidence_text: str = Form(...),
+    page_number: int = Form(...),
+    section_name: str = Form("Unknown"),
+    classification: EvidenceClassification = Form(...),
+    confidence: float = Form(0.8),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    validate_csrf_token(csrf)
+    paper_file = get_paper_file(db, paper_file_id)
+    if paper_file is None:
+        raise HTTPException(status_code=404)
+    candidate = get_candidate(db, paper_file.candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=404)
+    create_manual_analysis(
+        db,
+        candidate=candidate,
+        paper_file=paper_file,
+        title=title,
+        research_question=research_question,
+        methods=methods,
+        results=results,
+        connection_to_arnav=connection_to_arnav,
+        claim=claim,
+        evidence_text=evidence_text,
+        page_number=page_number,
+        section_name=section_name,
+        classification=classification,
+        confidence=confidence,
+    )
+    db.commit()
+    return RedirectResponse(f"/papers/{paper_file_id}", status_code=303)
+
+
+@router.post("/analyses/{analysis_id}/draft")
+def analysis_generate_draft(
+    analysis_id: int,
+    csrf: str = Form(...),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    validate_csrf_token(csrf)
+    analysis = get_analysis(db, analysis_id)
+    if analysis is None:
+        raise HTTPException(status_code=404)
+    candidate = get_candidate(db, analysis.candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=404)
+    evidence = evidence_for_analysis(db, analysis.id)
+    if not evidence:
+        raise HTTPException(status_code=400, detail="Evidence is required before drafting.")
+    draft = generate_manual_draft(db, candidate=candidate, analysis=analysis, evidence=evidence[0])
+    db.commit()
+    return RedirectResponse(f"/drafts/{draft.id}", status_code=303)

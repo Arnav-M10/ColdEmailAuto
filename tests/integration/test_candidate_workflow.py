@@ -138,3 +138,62 @@ def test_candidate_pdf_upload_creates_reviewable_paper(tmp_path: Path) -> None:
 
     papers = client.get("/papers")
     assert "paper.pdf" in papers.text
+
+
+def test_analysis_generates_reviewable_draft(tmp_path: Path) -> None:
+    client = build_test_client(tmp_path)
+    client.post(
+        "/candidates",
+        data={"csrf": csrf_token(), "full_name": "Professor Jane Doe"},
+    )
+    client.post(
+        "/candidates/1/emails",
+        data={
+            "csrf": csrf_token(),
+            "email": "jane@example.edu",
+            "source_url": "https://example.edu/jane",
+            "source_type": "official_university_page",
+            "confidence": "HIGH",
+            "verification_status": "VERIFIED",
+        },
+    )
+    source_pdf = tmp_path / "paper.pdf"
+    writer = PdfWriter()
+    writer.add_blank_page(width=72, height=72)
+    with source_pdf.open("wb") as file:
+        writer.write(file)
+    client.post(
+        "/candidates/1/papers",
+        data={"csrf": csrf_token()},
+        files={"file": ("paper.pdf", source_pdf.read_bytes(), "application/pdf")},
+    )
+
+    analysis_response = client.post(
+        "/papers/1/analysis",
+        data={
+            "csrf": csrf_token(),
+            "title": "magnetic field topology",
+            "research_question": "How does field structure change?",
+            "methods": "Persistent homology",
+            "results": "The method identifies changes in structure.",
+            "connection_to_arnav": "Parker Solar Probe magnetic-field analysis",
+            "claim": "the use of persistent homology to track field structure",
+            "evidence_text": "The paper uses persistent homology to compare field structure.",
+            "page_number": "1",
+            "section_name": "Methods",
+            "classification": "EXPLICIT",
+            "confidence": "0.9",
+        },
+        follow_redirects=True,
+    )
+    assert analysis_response.status_code == 200
+
+    draft_response = client.post(
+        "/analyses/1/draft",
+        data={"csrf": csrf_token()},
+        follow_redirects=True,
+    )
+
+    assert draft_response.status_code == 200
+    assert "I enjoyed reading your paper" in draft_response.text
+    assert "Do not send" in draft_response.text
