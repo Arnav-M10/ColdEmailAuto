@@ -48,6 +48,8 @@ The application is designed for local use and may store personal profile data, c
 
 If this repository is ever made public, do not commit personal profile data, real local databases, resumes, research portfolios, downloaded papers, logs, token caches, exports, or `.env` files. Review `PROJECT_SPEC.md`, `.gitignore`, and `SECURITY.md` before publishing.
 
+The initial local profile is stored at `data/arnav_profile.yaml`. Treat it as local personal data even when it contains only basic information.
+
 ## Setup
 
 Use Python 3.12. On this Codex desktop workspace, the bundled Python 3.12 path is:
@@ -99,6 +101,13 @@ alembic upgrade head
 The app also creates the Phase 0 SQLite tables automatically on local startup. Runtime database files under `data/` are ignored by Git.
 
 Logs are structured JSON and are intended for local troubleshooting. Do not paste logs into public systems without reviewing them for private data.
+
+Validate required local assets and refresh their ignored hash manifest:
+
+```bash
+source .venv/bin/activate
+python -m scripts.refresh_asset_manifest
+```
 
 Baseline:
 

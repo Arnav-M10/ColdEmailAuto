@@ -22,3 +22,13 @@ def test_placeholder_pages_render() -> None:
         assert "Drafts-only mode" in response.text
         assert "No Mail.Send" in response.text
 
+
+def test_settings_page_shows_required_assets() -> None:
+    client = TestClient(create_app())
+
+    response = client.get("/settings")
+
+    assert response.status_code == 200
+    assert "Required assets" in response.text
+    assert "assets/arnav_resume.pdf" in response.text
+    assert "assets/arnav_research_portfolio.pdf" in response.text

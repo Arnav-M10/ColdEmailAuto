@@ -1,0 +1,64 @@
+name: Arnav Mittal
+email: ArnavMittal@my.unt.edu
+status: Incoming Student
+program: Texas Academy of Mathematics and Science
+institution: University of North Texas
+preferred_signoff: |
+  Sincerely,
+  Arnav Mittal
+  Incoming Student, TAMS
+  University of North Texas
+  ArnavMittal@my.unt.edu
+
+email_preferences:
+  paragraph_count: 2
+  target_word_count_min: 105
+  target_word_count_max: 145
+  preferred_opening_phrase: "I enjoyed reading your paper"
+  concise_subject: true
+  no_transactional_language: true
+  no_publication_request: true
+  broad_contribution_ask: true
+  attach_resume: true
+  attach_portfolio: true
+  attachment_mode: automatic_and_mandatory
+  vocabulary_level: very_simple_everyday_english
+  preferred_interest_word: intrigued
+  avoid_phrase: very interesting
+  personalization_required: true
+
+research_portfolio:
+  project_a_regge_spectral_geometry:
+    - Regge calculus and piecewise-linear geometry.
+    - Curvature represented through deficit angles.
+    - Weighted graph or Laplace-Beltrami-type operators.
+    - Spectral gaps, heat traces, spectral dimension, and spacing statistics.
+    - Mathematica-based computational work.
+  project_b_parker_solar_probe:
+    - Parker Solar Probe FIELDS time-series analysis.
+    - Persistent homology and Vietoris-Rips complexes.
+    - Magnetic-field vectors mapped to the unit sphere.
+    - Scientific Python tooling.
+  project_c_asteroid_orbits:
+    - Astrometric imaging and plate reduction.
+    - Gauss orbit determination.
+    - Six-dimensional covariance.
+    - Monte Carlo orbital clones.
+    - Python visualization.
+  project_d_vara_optimization:
+    - Jensen-gap analysis.
+    - Convex operating costs.
+    - Probabilistic demand modeling.
+    - Numerical optimization and uncertainty.
+
+confirmed_tools:
+  - Python
+  - NumPy
+  - SciPy
+  - Pandas
+  - Matplotlib
+  - Mathematica
+  - numerical simulation
+  - statistical analysis
+  - scientific visualization
+

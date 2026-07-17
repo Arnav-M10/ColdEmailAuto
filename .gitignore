@@ -32,6 +32,7 @@ data/*.db
 data/*.db-*
 data/outreach.db
 data/outreach.db-*
+data/local_asset_manifest.json
 data/cache/*
 !data/cache/.gitkeep
 data/exports/*
@@ -53,4 +54,3 @@ logs/*
 Thumbs.db
 .idea/
 .vscode/
-

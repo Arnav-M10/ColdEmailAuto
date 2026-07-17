@@ -37,3 +37,12 @@ The app creates the foundation tables on local startup so the health check and U
 ## Observability and HTTP Safety
 
 Every HTTP response receives a request ID and secure browser headers. Requests are logged as structured JSON with method, path, status code, and duration. Logs must not include request bodies, full email bodies, paper contents, tokens, authorization headers, or API keys.
+
+## Local Profile and Assets
+
+The user profile lives at `data/arnav_profile.yaml`. Required first-contact attachments are expected at:
+
+- `assets/arnav_resume.pdf`
+- `assets/arnav_research_portfolio.pdf`
+
+The PDFs are ignored by Git. The app validates their PDF signature, parseability, page count, size, and SHA-256 hash. Hashes are written to ignored local manifest `data/local_asset_manifest.json`.

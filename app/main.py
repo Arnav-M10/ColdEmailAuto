@@ -14,6 +14,8 @@ from app.db.session import check_database, initialize_database
 from app.observability.logging import configure_logging
 from app.safety import assert_no_send_capability
 from app.security.headers import apply_security_headers
+from app.services.assets import build_asset_manifest
+from app.services.profile import load_profile
 
 settings = get_settings()
 templates = Jinja2Templates(directory=str(settings.project_root / "app" / "templates"))
@@ -134,6 +136,8 @@ def render_page(
     active_page: str,
     page_title: str,
 ) -> HTMLResponse:
+    asset_manifest = build_asset_manifest()
+    profile = load_profile()
     return templates.TemplateResponse(
         request,
         template_name,
@@ -141,6 +145,8 @@ def render_page(
             "active_page": active_page,
             "page_title": page_title,
             "settings": settings,
+            "asset_manifest": asset_manifest,
+            "profile": profile,
         },
     )
 

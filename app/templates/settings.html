@@ -11,9 +11,35 @@
     <dl class="detail-list">
       <div><dt>Python</dt><dd>3.12 required</dd></div>
       <div><dt>Database</dt><dd>{{ settings.database_url }}</dd></div>
-      <div><dt>Attachments</dt><dd>Resume and portfolio will be required before approval.</dd></div>
+      <div><dt>Profile</dt><dd>{{ profile.name }} - {{ profile.program }}</dd></div>
+      <div><dt>Attachments</dt><dd>{% if asset_manifest.all_required_valid %}Ready{% else %}Needs attention{% endif %}</dd></div>
       <div><dt>External sources</dt><dd>Disabled in Phase 0.</dd></div>
     </dl>
   </section>
-{% endblock %}
 
+  <section class="panel secondary-panel">
+    <div class="panel-header">
+      <div>
+        <h2>Required assets</h2>
+        <p>These files are local, ignored by Git, and mandatory before any future draft approval.</p>
+      </div>
+    </div>
+    <div class="asset-list">
+      {% for asset in asset_manifest.assets %}
+        <div class="asset-row">
+          <div>
+            <strong>{{ asset.label }}</strong>
+            <span>{{ asset.relative_path }}</span>
+          </div>
+          <div class="asset-state{% if asset.valid %} ok{% else %} bad{% endif %}">
+            {% if asset.valid %}
+              Valid PDF, {{ asset.page_count }} page{% if asset.page_count != 1 %}s{% endif %}
+            {% else %}
+              {{ asset.error }}
+            {% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  </section>
+{% endblock %}

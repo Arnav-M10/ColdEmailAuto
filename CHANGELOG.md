@@ -16,3 +16,4 @@ All notable project changes will be documented here.
 - Initial no-send regression test.
 - SQLite database foundation with SQLAlchemy and Alembic.
 - Structured request logging, redaction helpers, request IDs, and secure headers.
+- Local profile YAML, required asset validation, and ignored asset hash manifest.
