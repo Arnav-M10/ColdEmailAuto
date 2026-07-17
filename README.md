@@ -25,6 +25,7 @@ Implemented so far:
 - Safe web retrieval with SSRF blocking, robots checks, redirect validation, and response caps.
 - Publication memory with OpenAlex/Crossref normalization, manual Scholar reconciliation, deduplication, author identity review, and paper scoring.
 - Lawful PDF retrieval through the safe fetcher, including arXiv PDF planning and source provenance.
+- Provider-based AI analysis architecture with Gemini as the default provider.
 - Rich local paper analysis fields, text-quality metadata, deterministic evidence extraction, and stricter draft approval gates.
 - Structured logging, request IDs, security headers, secret scan, dependency audit, and no-send regression tests.
 
@@ -118,6 +119,31 @@ Validate required local assets and refresh their ignored hash manifest:
 source .venv/bin/activate
 python -m scripts.refresh_asset_manifest
 ```
+
+## Gemini AI Setup
+
+The default AI provider is Gemini. The rest of the application talks only to the generic provider interface, so future providers can be added without changing candidate, paper, draft, or route logic.
+
+To configure Gemini:
+
+1. Go to [Google AI Studio](https://ai.google.dev/aistudio).
+2. Sign in and open the API keys page.
+3. Create a Gemini API key. New keys in AI Studio are auth keys by default; restrict older standard keys to the Gemini API if AI Studio marks them unrestricted.
+4. Add the key to a local ignored `.env` file:
+
+```bash
+AI_PROVIDER=gemini
+AI_MODEL=gemini-2.5-flash
+GEMINI_API_KEY=your_key_here
+AI_TIMEOUT_SECONDS=30
+AI_RETRIES=2
+AI_TEMPERATURE=0.1
+AI_MAX_TOKENS=4096
+```
+
+`.env` is ignored by Git. Do not commit API keys, logs containing keys, or copied provider responses with private paper text.
+
+If `GEMINI_API_KEY` or `AI_API_KEY` is missing, the app will show a clear setup error and will not create an analysis. It never silently falls back to a mock provider.
 
 Baseline:
 

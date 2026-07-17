@@ -7,6 +7,8 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.models.paper import EvidenceClassification
 from app.security.csrf import csrf_token, validate_csrf_token
+from app.services.ai_analysis import arnav_profile_summary, create_ai_analysis_from_text
+from app.services.ai_providers import AIProviderError
 from app.services.analysis import (
     create_manual_analysis,
     create_structured_analysis_from_text,
@@ -149,6 +151,45 @@ def paper_add_structured_analysis(
         title=title,
         connection_to_arnav=connection_to_arnav,
     )
+    db.commit()
+    return RedirectResponse(f"/papers/{paper_file_id}", status_code=303)
+
+
+@router.post("/papers/{paper_file_id}/ai-analysis")
+def paper_add_ai_analysis(
+    paper_file_id: int,
+    csrf: str = Form(...),
+    title: str = Form(...),
+    connection_to_arnav: str = Form(...),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    validate_csrf_token(csrf)
+    paper_file = get_paper_file(db, paper_file_id)
+    if paper_file is None:
+        raise HTTPException(status_code=404)
+    candidate = get_candidate(db, paper_file.candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=404)
+    if paper_file.publication_id is not None:
+        try:
+            assert_publication_selected_for_retrieval(
+                db,
+                candidate_id=candidate.id,
+                publication_id=paper_file.publication_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    try:
+        create_ai_analysis_from_text(
+            db,
+            candidate=candidate,
+            paper_file=paper_file,
+            title=title,
+            connection_to_arnav=connection_to_arnav,
+            profile_summary=arnav_profile_summary(),
+        )
+    except (AIProviderError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     db.commit()
     return RedirectResponse(f"/papers/{paper_file_id}", status_code=303)
 

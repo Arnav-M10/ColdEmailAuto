@@ -4,11 +4,13 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 from pypdf import PdfWriter
+from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.config import get_settings
 from app.db.session import create_engine_for_url, get_db, initialize_database
 from app.main import create_app
-from app.models.paper import PaperFile
+from app.models.paper import PaperAnalysis, PaperFile
 from app.models.publication import Authorship, Publication
 from app.security.csrf import csrf_token
 from app.services.candidates import create_candidate
@@ -427,6 +429,67 @@ def test_publication_linked_analysis_requires_paper_approval(tmp_path: Path) -> 
 
     assert blocked.status_code == 400
     assert "Approve this paper" in blocked.text
+
+
+def test_ai_analysis_missing_key_returns_clear_error_without_fake_analysis(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    monkeypatch.delenv("AI_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    get_settings.cache_clear()
+    client, session_factory = build_test_context(tmp_path)
+    settings = get_settings()
+    text_dir = settings.project_root / "data" / "cache" / "paper_text"
+    text_dir.mkdir(parents=True, exist_ok=True)
+    text_path = text_dir / "missing-key-route.txt"
+    text_path.write_text(
+        "--- Page 1 --- We use numerical simulation to test magnetic structures.",
+        encoding="utf-8",
+    )
+    with session_factory() as session:
+        candidate = create_candidate(
+            session,
+            full_name="Professor Jane Doe",
+            title=None,
+            institution="Example University",
+            department=None,
+            research_area="computational physics",
+            official_profile_url=None,
+            notes=None,
+        )
+        session.add(
+            PaperFile(
+                candidate_id=candidate.id,
+                publication_id=None,
+                original_filename="paper.pdf",
+                stored_path="papers/test/paper.pdf",
+                sha256="b" * 64,
+                size_bytes=128,
+                page_count=1,
+                parsed_text_path=str(text_path.relative_to(settings.project_root)),
+                source_url=None,
+                license_note=None,
+                text_quality_json="{}",
+            ),
+        )
+        session.commit()
+
+    response = client.post(
+        "/papers/1/ai-analysis",
+        data={
+            "csrf": csrf_token(),
+            "title": "Magnetic structures",
+            "connection_to_arnav": "Parker Solar Probe magnetic-field analysis",
+        },
+    )
+    with session_factory() as session:
+        analysis_count = len(list(session.scalars(select(PaperAnalysis))))
+
+    assert response.status_code == 400
+    assert "Gemini API key is missing" in response.text
+    assert analysis_count == 0
+    get_settings.cache_clear()
 
 
 def test_discovery_homepage_requires_directory_approval(

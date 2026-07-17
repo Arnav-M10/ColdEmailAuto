@@ -62,6 +62,8 @@ For approved publications with an arXiv ID or valid PDF URL, use Retrieve PDF fr
 
 Open a paper to create a structured local analysis; the local analyzer extracts only evidence present in parsed text and records limitations, future work, contribution areas, and overclaim risks.
 
+Provider-backed AI analysis uses the configured `AI_PROVIDER`; Gemini is the default. If the Gemini key is missing or invalid, the app shows a setup error and does not create an analysis. Provider output must pass structured validation and evidence-grounding checks before it is saved.
+
 Later phases will document:
 
 - Profile setup.

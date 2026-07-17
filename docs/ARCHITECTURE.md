@@ -84,3 +84,11 @@ Publication PDFs are retrieved only through the safe fetcher. arXiv IDs resolve 
 Retrieval planning tries known lawful PDF locations in order: arXiv IDs first, official university or institutional public PDFs next, approved public full-text hosts after that, and OpenAlex open-access PDF locations as a later fallback. Each failed attempt is recorded in the error message, and candidates are marked `NO_FULL_TEXT` when no lawful PDF can be retrieved. Duplicate retrieval of the same candidate-publication PDF returns the existing stored paper record.
 
 Phase 4 analysis records text quality metadata for parsed PDFs and expands `paper_analyses` with equations, computational methods, datasets, software, assumptions, limitations, future work, contribution areas, candidate-role notes, and overclaim risks. The local deterministic analyzer only extracts claims from parsed text and creates evidence items; missing details stay marked as unknown rather than inferred.
+
+## Provider-Based AI Analysis
+
+Provider-backed analysis is isolated behind `app.services.ai_providers.AIProvider`. Application workflow code calls `app.services.ai_analysis` and never depends directly on Gemini, OpenAI, or a provider SDK. Gemini is the default real provider. OpenAI is represented only as a future provider boundary and is not implemented.
+
+AI settings live in `app.config.Settings`: provider, model, API key, timeout, retries, temperature, and max tokens. The Gemini provider owns all Gemini-specific HTTP shape, endpoint construction, response parsing, retry handling, invalid-key errors, timeout errors, malformed JSON handling, schema validation, and prompt-injection-resistant instructions.
+
+Provider output is validated with Pydantic before persistence. Evidence excerpts must appear in the parsed paper text, at least one `EXPLICIT` claim is required, and failed validation creates no analysis row. Test-only mock providers are injectable into services but cannot be selected from runtime settings.
