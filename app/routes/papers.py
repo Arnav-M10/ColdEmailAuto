@@ -9,6 +9,7 @@ from app.models.paper import EvidenceClassification
 from app.security.csrf import csrf_token, validate_csrf_token
 from app.services.analysis import (
     create_manual_analysis,
+    create_structured_analysis_from_text,
     evidence_for_analysis,
     get_analysis,
     list_analyses_for_paper,
@@ -102,6 +103,32 @@ def paper_add_analysis(
         section_name=section_name,
         classification=classification,
         confidence=confidence,
+    )
+    db.commit()
+    return RedirectResponse(f"/papers/{paper_file_id}", status_code=303)
+
+
+@router.post("/papers/{paper_file_id}/structured-analysis")
+def paper_add_structured_analysis(
+    paper_file_id: int,
+    csrf: str = Form(...),
+    title: str = Form(...),
+    connection_to_arnav: str = Form(...),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    validate_csrf_token(csrf)
+    paper_file = get_paper_file(db, paper_file_id)
+    if paper_file is None:
+        raise HTTPException(status_code=404)
+    candidate = get_candidate(db, paper_file.candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=404)
+    create_structured_analysis_from_text(
+        db,
+        candidate=candidate,
+        paper_file=paper_file,
+        title=title,
+        connection_to_arnav=connection_to_arnav,
     )
     db.commit()
     return RedirectResponse(f"/papers/{paper_file_id}", status_code=303)

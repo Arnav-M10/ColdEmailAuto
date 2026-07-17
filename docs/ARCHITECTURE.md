@@ -76,3 +76,5 @@ Manual Scholar workflows store pasted Scholar URLs only as source context. The a
 ## Phase 4 Retrieval Foundation
 
 Publication PDFs are retrieved only through the safe fetcher. arXiv IDs resolve to `https://arxiv.org/pdf/...`; metadata PDF URLs are used only when present and valid. Downloaded content must pass PDF signature and parser checks before storage. Stored `paper_files` now retain `publication_id`, `source_url`, and `license_note` so every retrieved paper can be traced back to its lawful source.
+
+Phase 4 analysis records text quality metadata for parsed PDFs and expands `paper_analyses` with equations, computational methods, datasets, software, assumptions, limitations, future work, contribution areas, candidate-role notes, and overclaim risks. The local deterministic analyzer only extracts claims from parsed text and creates evidence items; missing details stay marked as unknown rather than inferred.

@@ -22,6 +22,16 @@
 
   <section class="panel secondary-panel">
     <div class="panel-header"><div><h2>Manual analysis</h2><p>Every paper-specific claim needs evidence.</p></div></div>
+    <form class="form-grid" method="post" action="/papers/{{ paper.id }}/structured-analysis">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <label class="wide">Paper title <input name="title" value="{{ paper.original_filename }}" required></label>
+      <label class="wide">Connection to Arnav <textarea name="connection_to_arnav" rows="2" required></textarea></label>
+      <div class="form-actions wide"><button type="submit">Create structured local analysis</button></div>
+    </form>
+  </section>
+
+  <section class="panel secondary-panel">
+    <div class="panel-header"><div><h2>Manual evidence entry</h2><p>Use this when the local parser misses important details.</p></div></div>
     <form class="form-grid" method="post" action="/papers/{{ paper.id }}/analysis">
       <input type="hidden" name="csrf" value="{{ csrf_token }}">
       <label class="wide">Paper title <input name="title" value="{{ paper.original_filename }}" required></label>

@@ -25,11 +25,21 @@ FORBIDDEN_PHRASES = {
     "transformative",
     "very interesting",
 }
+MIN_REVIEW_WORDS = 105
+MAX_REVIEW_WORDS = 145
 
 
 def word_count(text: str) -> int:
     body = text.split("Sincerely,", maxsplit=1)[0]
     return len([word for word in body.replace("\n", " ").split(" ") if word.strip()])
+
+
+def body_paragraph_count(text: str) -> int:
+    body = text.split("Sincerely,", maxsplit=1)[0].strip()
+    paragraphs = [paragraph for paragraph in body.split("\n\n") if paragraph.strip()]
+    if paragraphs and paragraphs[0].lower().startswith("dear "):
+        paragraphs = paragraphs[1:]
+    return len(paragraphs)
 
 
 def contains_forbidden_phrase(text: str) -> list[str]:
@@ -62,7 +72,8 @@ def generate_manual_draft(
         "University of North Texas. "
         f"I enjoyed reading your paper on {analysis.title}. "
         f"I was mainly intrigued by {evidence.claim}. "
-        f"The part I noted from the paper was: {evidence.evidence_text[:180].strip()}.\n\n"
+        f"The part I noted from the paper was: {evidence.evidence_text[:180].strip()}. "
+        f"I also noted the result that {analysis.results[:140].strip()}.\n\n"
         f"My recent work includes {analysis.connection_to_arnav}. "
         "I would be glad to help with any suitable ongoing project through coding, "
         "data analysis, numerical checks, or visualization. "
@@ -104,8 +115,10 @@ def validate_draft_approval(
         errors.append("A verified official email is required.")
     if contains_forbidden_phrase(draft.body_text):
         errors.append("Draft contains forbidden wording.")
-    if draft.word_count < 80:
-        errors.append("Draft is too short for review.")
+    if draft.word_count < MIN_REVIEW_WORDS or draft.word_count > MAX_REVIEW_WORDS:
+        errors.append("Draft must be 105-145 words excluding the signoff.")
+    if body_paragraph_count(draft.body_text) != 2:
+        errors.append("Draft must use exactly two concise body paragraphs.")
     if not required_attachments_ready(project_root_override):
         errors.append("Required resume and portfolio PDFs must be valid.")
     return errors

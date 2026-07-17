@@ -26,6 +26,7 @@ class PaperFile(Base, TimestampMixin):
     parsed_text_path: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     source_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     license_note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    text_quality_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
 
 
 class PaperAnalysis(Base, TimestampMixin):
@@ -38,6 +39,16 @@ class PaperAnalysis(Base, TimestampMixin):
     research_question: Mapped[str] = mapped_column(Text, nullable=False)
     methods: Mapped[str] = mapped_column(Text, nullable=False)
     results: Mapped[str] = mapped_column(Text, nullable=False)
+    equations: Mapped[str | None] = mapped_column(Text, nullable=True)
+    computational_methods: Mapped[str | None] = mapped_column(Text, nullable=True)
+    datasets: Mapped[str | None] = mapped_column(Text, nullable=True)
+    software: Mapped[str | None] = mapped_column(Text, nullable=True)
+    assumptions: Mapped[str | None] = mapped_column(Text, nullable=True)
+    limitations: Mapped[str | None] = mapped_column(Text, nullable=True)
+    future_work: Mapped[str | None] = mapped_column(Text, nullable=True)
+    contribution_areas: Mapped[str | None] = mapped_column(Text, nullable=True)
+    candidate_role_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    overclaim_risks: Mapped[str | None] = mapped_column(Text, nullable=True)
     connection_to_arnav: Mapped[str] = mapped_column(Text, nullable=False)
     confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.5)
     provider: Mapped[str] = mapped_column(String(80), nullable=False, default="manual")

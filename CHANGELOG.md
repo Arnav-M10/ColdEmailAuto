@@ -28,3 +28,4 @@ All notable project changes will be documented here.
 - Publication metadata memory with OpenAlex/Crossref normalization, deduplication, author identity checks, and paper scoring.
 - Publication Memory UI and manual Scholar reconciliation workflow without Scholar scraping.
 - Lawful PDF retrieval foundation with arXiv URL planning, safe PDF download, and paper source provenance.
+- Rich local paper analysis fields, text-quality metadata, deterministic evidence extraction, and stricter draft approval gates.

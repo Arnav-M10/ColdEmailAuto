@@ -1,3 +1,4 @@
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,6 +22,9 @@ class ParsedPdf:
     page_count: int
     text: str
     warnings: list[str]
+    extracted_characters: int
+    blank_pages: int
+    text_density: float
 
 
 def slugify(value: str) -> str:
@@ -49,10 +53,14 @@ def parse_pdf(path: Path) -> ParsedPdf:
     warnings = []
     if blank_pages:
         warnings.append(f"{blank_pages} page(s) had little or no extractable text.")
+    extracted = len("".join(text_parts))
     return ParsedPdf(
         page_count=len(reader.pages),
         text="".join(text_parts).strip(),
         warnings=warnings,
+        extracted_characters=extracted,
+        blank_pages=blank_pages,
+        text_density=extracted / max(len(reader.pages), 1),
     )
 
 
@@ -101,6 +109,14 @@ def store_manual_pdf(
         parsed_text_path=str(text_path.relative_to(root)),
         source_url=source_url,
         license_note=license_note,
+        text_quality_json=json.dumps(
+            {
+                "extracted_characters": parsed.extracted_characters,
+                "blank_pages": parsed.blank_pages,
+                "text_density": parsed.text_density,
+                "warnings": parsed.warnings,
+            },
+        ),
     )
     session.add(paper_file)
     session.flush()
