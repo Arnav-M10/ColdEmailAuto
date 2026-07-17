@@ -24,3 +24,4 @@ All notable project changes will be documented here.
 - Manual paper analysis, evidence entry, conservative draft generation, and local draft approval checks.
 - Local follow-up calculator and one-follow-up manual tracking workflow.
 - Phase 2 safe web retrieval foundation with SSRF blocking, robots checks, response caps, and discovery review tables.
+- Department discovery importer, five-layout extraction tests, transparent scoring, and review-before-save UI.

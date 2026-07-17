@@ -22,16 +22,16 @@ This log records completed implementation milestones. Detailed behavior changes 
 ## Phase 2
 
 - Phase 2.1 - safe web retrieval foundation with SSRF blocking, redirect revalidation, robots checks, response caps, and discovery review tables.
+- Phase 2.2 - department discovery importer, five-layout extraction coverage, transparent candidate scoring, and review-before-save UI.
 
-Phase 2.1 checks:
+Phase 2.2 checks:
 
 - `ruff check .` passed.
 - `mypy app tests scripts` passed.
-- `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/pytest tests/unit tests/security -q` passed.
+- `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/pytest -q` passed, 47 tests.
 - `bandit -c pyproject.toml -r app scripts` passed.
 - `python -m scripts.secret_scan` passed.
-- `alembic upgrade head` passed.
-- `pip-audit --cache-dir /private/tmp/pip-audit-cache` could not complete because `pip-audit` stalled while importing `tomli` in the local virtual environment; dependencies were not changed in this milestone.
+- `pip-audit --cache-dir /private/tmp/pip-audit-cache` passed with no known vulnerabilities.
 
 ## Latest Full Gate Set
 

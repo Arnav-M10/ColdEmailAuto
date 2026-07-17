@@ -13,6 +13,7 @@ from app.config import get_settings
 from app.db.session import check_database, initialize_database
 from app.observability.logging import configure_logging
 from app.routes.candidates import router as candidates_router
+from app.routes.discovery import router as discovery_router
 from app.routes.drafts import router as drafts_router
 from app.routes.followups import router as followups_router
 from app.routes.papers import router as papers_router
@@ -45,6 +46,7 @@ def create_app() -> FastAPI:
     app.state.templates = templates
     app.state.base_context = base_context
     app.include_router(candidates_router)
+    app.include_router(discovery_router)
     app.include_router(drafts_router)
     app.include_router(followups_router)
     app.include_router(papers_router)

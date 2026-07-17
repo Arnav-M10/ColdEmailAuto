@@ -462,6 +462,51 @@ th {
   background: #fbfcfd;
 }
 
+.discovery-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.discovery-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 16px;
+  background: #fbfcfd;
+}
+
+.card-row,
+.split-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.mini-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 16px;
+  margin: 12px 0;
+}
+
+.mini-list div {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 8px;
+}
+
+.muted-text {
+  color: var(--muted);
+}
+
+.secondary-button {
+  background: #475569;
+}
+
+.secondary-button:hover,
+.secondary-button:focus-visible {
+  background: #334155;
+}
+
 .event-list span {
   display: block;
   color: var(--muted);
@@ -510,6 +555,10 @@ th {
   }
 
   .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .mini-list {
     grid-template-columns: 1fr;
   }
 }

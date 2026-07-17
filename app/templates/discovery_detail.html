@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <h2>Review Queue</h2>
+        <p>{{ department_import.final_url }}</p>
+      </div>
+      <span class="status-pill">{{ department_import.status }}</span>
+    </div>
+    {% if department_import.error_message %}
+      <div class="warning-list"><div>{{ department_import.error_message }}</div></div>
+    {% endif %}
+    {% if candidates %}
+      <div class="discovery-grid">
+        {% for candidate in candidates %}
+          <article class="discovery-card">
+            <div class="card-row">
+              <div>
+                <h3>{{ candidate.full_name }}</h3>
+                <p>{{ candidate.title or "Researcher" }}{% if candidate.institution %}, {{ candidate.institution }}{% endif %}</p>
+              </div>
+              <span class="status-chip">{{ candidate.decision }}</span>
+            </div>
+            <dl class="mini-list">
+              <div><dt>Score</dt><dd>{{ "%.0f"|format(candidate.score) }} / 100</dd></div>
+              <div><dt>Confidence</dt><dd>{{ "%.0f"|format(candidate.confidence * 100) }}%</dd></div>
+              <div><dt>Topics</dt><dd>{{ candidate.active_topics or "Needs review" }}</dd></div>
+              <div><dt>Remote</dt><dd>{{ candidate.remote_feasibility or "Unclear" }}</dd></div>
+              <div><dt>Mentoring</dt><dd>{{ candidate.mentoring_likelihood or "Unclear" }}</dd></div>
+              <div><dt>Overlap</dt><dd>{{ candidate.research_overlap or "Needs review" }}</dd></div>
+              <div><dt>Email</dt><dd>{{ candidate.official_email or "Not shown" }}</dd></div>
+              <div><dt>Homepage</dt><dd>{% if candidate.official_homepage %}<a href="{{ candidate.official_homepage }}">{{ candidate.official_homepage }}</a>{% else %}Not shown{% endif %}</dd></div>
+            </dl>
+            <p class="muted-text">{{ candidate.research_summary or "" }}</p>
+            <div class="form-actions split-actions">
+              <form method="post" action="/discovery/candidates/{{ candidate.id }}/reject">
+                <input type="hidden" name="csrf" value="{{ csrf_token }}">
+                <button type="submit" class="secondary-button">Reject</button>
+              </form>
+              {% if candidate.decision != "SAVED" %}
+                <form method="post" action="/discovery/candidates/{{ candidate.id }}/save">
+                  <input type="hidden" name="csrf" value="{{ csrf_token }}">
+                  <button type="submit">Save candidate</button>
+                </form>
+              {% endif %}
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="empty-state">
+        <h3>No eligible people found</h3>
+        <p>The importer did not find supported role titles on this page.</p>
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <h2>Department Import</h2>
+        <p>One official department page at a time. Imported people must be reviewed before saving.</p>
+      </div>
+    </div>
+    <form class="form-grid" method="post" action="/discovery/import">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <label class="wide">Official department URL <input name="source_url" type="url" required></label>
+      <label>Institution <input name="institution" placeholder="Example University"></label>
+      <label>Department <input name="department" placeholder="Astronomy"></label>
+      <div class="form-actions wide"><button type="submit">Fetch for review</button></div>
+    </form>
+  </section>
+
+  <section class="panel secondary-panel">
+    <div class="panel-header">
+      <div>
+        <h2>Recent imports</h2>
+        <p>Previews are separate from saved candidates.</p>
+      </div>
+    </div>
+    {% if imports %}
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>URL</th><th>Status</th><th>Robots</th><th></th></tr></thead>
+          <tbody>
+            {% for item in imports %}
+              <tr>
+                <td>{{ item.final_url }}</td>
+                <td>{{ item.status }}</td>
+                <td>{{ "Allowed" if item.robots_allowed else "Blocked" }}</td>
+                <td><a class="text-link" href="/discovery/imports/{{ item.id }}">Review</a></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty-state">
+        <h3>No imports yet</h3>
+        <p>Paste an official department people page to create a review queue.</p>
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

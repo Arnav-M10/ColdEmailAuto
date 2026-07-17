@@ -62,3 +62,7 @@ Follow-up tracking is suggestion-only. Marking a candidate manually sent require
 External retrieval starts behind `app.services.web_safety`. The service validates allowed URL categories, blocks localhost and private networks, resolves hostnames before requests, revalidates redirect targets, checks robots policy, applies per-domain delay hooks, caps response sizes, and validates expected content type. Discovery imports store review candidates in `department_imports` and `discovery_candidates` before any candidate is saved.
 
 The review schema is intentionally separate from `candidates` so department pages can be parsed, scored, and rejected without polluting the permanent outreach memory.
+
+## Phase 2 Discovery Review UI
+
+The Discovery page accepts one official department URL at a time. Fetched pages are parsed into `DiscoveryCandidate` previews with role category, research summary, active topics, remote feasibility, mentoring likelihood, research overlap, confidence, score, official email, homepage, evidence, and warnings. Candidates can be rejected or saved individually. Saving creates the permanent candidate and verified email only after duplicate checks pass.
