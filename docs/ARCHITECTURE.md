@@ -27,3 +27,9 @@ The application starts as a local FastAPI app with server-rendered Jinja2 templa
 These pages are placeholders in Phase 0, but the navigation, layout, and safety notices are real.
 
 The no-send policy is centralized in `app/safety.py` and covered by tests. Future Outlook work must depend on this boundary rather than introducing independent mail behavior.
+
+## Database
+
+The Phase 0 database is SQLite at `data/outreach.db` by default. SQLAlchemy owns the model definitions and Alembic owns migrations.
+
+The app creates the foundation tables on local startup so the health check and UI remain easy to run. Alembic migrations remain the durable upgrade path for explicit schema changes.

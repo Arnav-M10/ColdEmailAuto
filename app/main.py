@@ -4,6 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app.config import get_settings
+from app.db.session import check_database, initialize_database
 from app.safety import assert_no_send_capability
 
 settings = get_settings()
@@ -12,6 +13,7 @@ templates = Jinja2Templates(directory=str(settings.project_root / "app" / "templ
 
 def create_app() -> FastAPI:
     assert_no_send_capability()
+    initialize_database()
 
     app = FastAPI(
         title=settings.app_name,
@@ -50,6 +52,7 @@ def create_app() -> FastAPI:
             "app": settings.app_name,
             "environment": settings.app_env,
             "drafts_only": settings.drafts_only_mode,
+            "database": check_database(),
         }
 
     @app.get("/settings", response_class=HTMLResponse)
@@ -110,4 +113,3 @@ def render_page(
 
 
 app = create_app()
-

@@ -89,6 +89,15 @@ bandit -c pyproject.toml -r app
 pip-audit --cache-dir /private/tmp/pip-audit-cache
 ```
 
+Initialize or upgrade the local database with Alembic:
+
+```bash
+source .venv/bin/activate
+alembic upgrade head
+```
+
+The app also creates the Phase 0 SQLite tables automatically on local startup. Runtime database files under `data/` are ignored by Git.
+
 Baseline:
 
 - Python 3.12.

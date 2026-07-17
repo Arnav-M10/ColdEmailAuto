@@ -14,3 +14,4 @@ All notable project changes will be documented here.
 - Python 3.12 project configuration.
 - FastAPI application shell with placeholder pages.
 - Initial no-send regression test.
+- SQLite database foundation with SQLAlchemy and Alembic.
