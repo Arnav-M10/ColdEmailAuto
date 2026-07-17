@@ -6,7 +6,7 @@ This project is governed by `PROJECT_SPEC.md`. Safety, truthfulness, privacy, an
 
 ## Current Status
 
-Phase 0 and Phase 1 are implemented as a local, safe manual tracker.
+Phases 0-4 are implemented as a local, safe research-assistant workflow.
 
 Implemented so far:
 
@@ -21,12 +21,16 @@ Implemented so far:
 - Manual paper analysis with evidence records.
 - Conservative local draft generation and approval checks.
 - Follow-up calculator and one-follow-up manual tracker.
+- One-URL-at-a-time official department discovery with review-before-save previews.
+- Safe web retrieval with SSRF blocking, robots checks, redirect validation, and response caps.
+- Publication memory with OpenAlex/Crossref normalization, manual Scholar reconciliation, deduplication, author identity review, and paper scoring.
+- Lawful PDF retrieval through the safe fetcher, including arXiv PDF planning and source provenance.
+- Rich local paper analysis fields, text-quality metadata, deterministic evidence extraction, and stricter draft approval gates.
 - Structured logging, request IDs, security headers, secret scan, dependency audit, and no-send regression tests.
 
 Not implemented yet:
 
-- Any external integrations.
-- Live crawling, OpenAlex, Crossref, arXiv, or other metadata APIs.
+- Live whole-web crawling or automatic Google Scholar scraping.
 - Outlook draft creation.
 - Reply classification.
 - Background workers.
@@ -91,7 +95,7 @@ Run checks:
 source .venv/bin/activate
 ruff check .
 mypy app tests scripts
-pytest
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest -q
 bandit -c pyproject.toml -r app scripts
 pip-audit --cache-dir /private/tmp/pip-audit-cache
 python -m scripts.secret_scan

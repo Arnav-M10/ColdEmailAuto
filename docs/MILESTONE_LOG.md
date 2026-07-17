@@ -23,8 +23,14 @@ This log records completed implementation milestones. Detailed behavior changes 
 
 - Phase 2.1 - safe web retrieval foundation with SSRF blocking, redirect revalidation, robots checks, response caps, and discovery review tables.
 - Phase 2.2 - department discovery importer, five-layout extraction coverage, transparent candidate scoring, and review-before-save UI.
+
+## Phase 3
+
 - Phase 3.1 - publication metadata tables, OpenAlex/Crossref response normalization, metadata deduplication, author identity review, and paper scoring.
 - Phase 3.2 - Publication Memory UI and manual Scholar reconciliation without Scholar scraping.
+
+## Phase 4
+
 - Phase 4.1 - lawful PDF retrieval foundation with arXiv planning, safe PDF download, and paper source provenance.
 - Phase 4.2 - rich local paper analysis, text-quality metadata, deterministic evidence extraction, and stricter draft approval gates.
 
@@ -32,7 +38,7 @@ Phase 4.2 checks:
 
 - `ruff check .` passed.
 - `mypy app tests scripts` passed.
-- `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/pytest -q` passed, 58 tests.
+- `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/pytest -q` passed, 58 tests. Plugin autoload is disabled to avoid unrelated coverage-plugin startup stalls in this local environment.
 - `bandit -c pyproject.toml -r app scripts` passed.
 - `python -m scripts.secret_scan` passed.
 - `alembic upgrade head` passed.
@@ -42,7 +48,7 @@ Phase 4.2 checks:
 
 - `ruff check .`
 - `mypy app tests scripts`
-- `pytest -q`
+- `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest -q`
 - `bandit -c pyproject.toml -r app scripts`
 - `pip-audit --cache-dir /private/tmp/pip-audit-cache`
 - `python -m scripts.secret_scan`
