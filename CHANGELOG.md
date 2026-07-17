@@ -17,3 +17,4 @@ All notable project changes will be documented here.
 - SQLite database foundation with SQLAlchemy and Alembic.
 - Structured request logging, redaction helpers, request IDs, and secure headers.
 - Local profile YAML, required asset validation, and ignored asset hash manifest.
+- Tracked-file secret scanning command and configuration.

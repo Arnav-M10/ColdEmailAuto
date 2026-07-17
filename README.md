@@ -89,6 +89,7 @@ mypy app tests
 pytest
 bandit -c pyproject.toml -r app
 pip-audit --cache-dir /private/tmp/pip-audit-cache
+python -m scripts.secret_scan
 ```
 
 Initialize or upgrade the local database with Alembic:

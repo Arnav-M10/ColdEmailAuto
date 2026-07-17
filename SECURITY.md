@@ -12,8 +12,8 @@ This project is a local, single-user application for careful professor outreach.
 - Validate paths and filenames before file storage.
 - Bind local development servers to `127.0.0.1` by default.
 - Redact secrets and authorization headers from logs.
+- Run `python -m scripts.secret_scan` before commits that change configuration, docs, credentials handling, or integrations.
 
 ## Reporting Issues
 
 For local development, record suspected security issues in `docs/THREAT_MODEL.md` or a dedicated issue tracker before implementing a fix. Do not weaken the safety requirements in `PROJECT_SPEC.md`.
-
