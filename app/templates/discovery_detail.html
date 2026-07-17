@@ -22,10 +22,14 @@
                 <h3>{{ candidate.full_name }}</h3>
                 <p>{{ candidate.title or "Researcher" }}{% if candidate.institution %}, {{ candidate.institution }}{% endif %}</p>
               </div>
-              <span class="status-chip">{{ candidate.decision }}</span>
+              <div class="chip-stack">
+                <span class="status-chip">{{ candidate.decision }}</span>
+                <span class="status-chip">{{ candidate.screening_status }}</span>
+              </div>
             </div>
             <dl class="mini-list">
               <div><dt>Score</dt><dd>{{ "%.0f"|format(candidate.score) }} / 100</dd></div>
+              <div><dt>Screening score</dt><dd>{{ "%.0f"|format(candidate.screening_score) }} / 100</dd></div>
               <div><dt>Confidence</dt><dd>{{ "%.0f"|format(candidate.confidence * 100) }}%</dd></div>
               <div><dt>Topics</dt><dd>{{ candidate.active_topics or "Needs review" }}</dd></div>
               <div><dt>Remote</dt><dd>{{ candidate.remote_feasibility or "Unclear" }}</dd></div>
@@ -36,6 +40,30 @@
               <div><dt>Source URL</dt><dd><a href="{{ candidate.source_url }}">{{ candidate.source_url }}</a></dd></div>
             </dl>
             <p class="muted-text">{{ candidate.research_summary or "" }}</p>
+            {% if item.exclusion_reasons %}
+              <div class="warning-list">
+                {% for reason in item.exclusion_reasons %}
+                  <div><strong>Excluded:</strong> {{ reason }}</div>
+                {% endfor %}
+              </div>
+            {% endif %}
+            {% if item.warning_reasons %}
+              <div class="warning-list">
+                {% for reason in item.warning_reasons %}
+                  <div><strong>Warning:</strong> {{ reason }}</div>
+                {% endfor %}
+              </div>
+            {% endif %}
+            {% if item.screening_reasons %}
+              <details class="source-details">
+                <summary>Ranking explanation</summary>
+                <ul class="reason-list">
+                  {% for reason in item.screening_reasons %}
+                    <li>{{ reason }}</li>
+                  {% endfor %}
+                </ul>
+              </details>
+            {% endif %}
             <details class="source-details">
               <summary>Source element</summary>
               <pre>{{ item.source_element }}</pre>
@@ -45,7 +73,12 @@
                 <input type="hidden" name="csrf" value="{{ csrf_token }}">
                 <button type="submit" class="secondary-button">Reject</button>
               </form>
-              {% if candidate.decision != "SAVED" %}
+              {% if candidate.screening_status == "EXCLUDED" and not candidate.override_exclusion %}
+                <form method="post" action="/discovery/candidates/{{ candidate.id }}/override">
+                  <input type="hidden" name="csrf" value="{{ csrf_token }}">
+                  <button type="submit" class="secondary-button">Override exclusion</button>
+                </form>
+              {% elif candidate.decision != "SAVED" %}
                 <form method="post" action="/discovery/candidates/{{ candidate.id }}/save">
                   <input type="hidden" name="csrf" value="{{ csrf_token }}">
                   <button type="submit">Save candidate</button>

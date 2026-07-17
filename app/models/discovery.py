@@ -20,6 +20,12 @@ class DiscoveryDecision(StrEnum):
     SAVED = "SAVED"
 
 
+class DiscoveryScreeningStatus(StrEnum):
+    INCLUDED = "INCLUDED"
+    EXCLUDED = "EXCLUDED"
+    WARN = "WARN"
+
+
 class DepartmentImport(Base, TimestampMixin):
     __tablename__ = "department_imports"
 
@@ -55,6 +61,16 @@ class DiscoveryCandidate(Base, TimestampMixin):
     source_url: Mapped[str] = mapped_column(String(1000), nullable=False)
     evidence_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     warnings_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    screening_status: Mapped[DiscoveryScreeningStatus] = mapped_column(
+        String(40),
+        nullable=False,
+        default=DiscoveryScreeningStatus.INCLUDED,
+    )
+    screening_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    screening_reasons_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    exclusion_reasons_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    warning_reasons_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    override_exclusion: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     decision: Mapped[DiscoveryDecision] = mapped_column(
         String(40),
         nullable=False,

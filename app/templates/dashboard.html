@@ -4,27 +4,19 @@
   <section class="panel">
     <div class="panel-header">
       <div>
-        <h2>Local workspace</h2>
-        <p>Foundation status for the professor outreach workflow.</p>
+        <h2>Workflow Dashboard</h2>
+        <p>Local progress across discovery, screening, papers, analysis, and drafts.</p>
       </div>
+      <a class="button-link" href="/discovery">Import Department</a>
     </div>
     <div class="metric-grid">
-      <div class="metric">
-        <span class="metric-label">Discovery</span>
-        <strong>Deferred</strong>
-        <p>No crawling or metadata integrations in Phase 0.</p>
-      </div>
-      <div class="metric">
-        <span class="metric-label">Drafting</span>
-        <strong>Blocked</strong>
-        <p>Requires full-paper analysis in later phases.</p>
-      </div>
-      <div class="metric">
-        <span class="metric-label">Email</span>
-        <strong>Drafts only</strong>
-        <p>Sending capability is intentionally absent.</p>
-      </div>
+      {% for metric in metrics %}
+        <div class="metric">
+          <span class="metric-label">{{ metric.label }}</span>
+          <strong>{{ metric.value }}</strong>
+          <p>{{ metric.note }}</p>
+        </div>
+      {% endfor %}
     </div>
   </section>
 {% endblock %}
-

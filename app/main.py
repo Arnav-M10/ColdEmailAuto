@@ -1,16 +1,18 @@
 import logging
 from collections.abc import Awaitable, Callable
 from time import perf_counter
+from typing import Annotated
 from uuid import uuid4
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from sqlalchemy.orm import Session
 from starlette.responses import Response
 
 from app.config import get_settings
-from app.db.session import check_database, initialize_database
+from app.db.session import check_database, get_db, initialize_database
 from app.observability.logging import configure_logging
 from app.routes.candidates import router as candidates_router
 from app.routes.discovery import router as discovery_router
@@ -22,6 +24,7 @@ from app.safety import assert_no_send_capability
 from app.security.headers import apply_security_headers
 from app.services.assets import build_asset_manifest
 from app.services.profile import load_profile
+from app.services.workflow_stats import dashboard_metrics
 
 settings = get_settings()
 templates = Jinja2Templates(directory=str(settings.project_root / "app" / "templates"))
@@ -77,12 +80,13 @@ def create_app() -> FastAPI:
         return response
 
     @app.get("/", response_class=HTMLResponse)
-    def dashboard(request: Request) -> HTMLResponse:
+    def dashboard(request: Request, db: Annotated[Session, Depends(get_db)]) -> HTMLResponse:
         return render_page(
             request=request,
             template_name="dashboard.html",
             active_page="dashboard",
             page_title="Dashboard",
+            extra_context={"metrics": dashboard_metrics(db)},
         )
 
     @app.get("/health", response_class=HTMLResponse)
@@ -122,12 +126,12 @@ def render_page(
     template_name: str,
     active_page: str,
     page_title: str,
+    extra_context: dict[str, object] | None = None,
 ) -> HTMLResponse:
-    return templates.TemplateResponse(
-        request,
-        template_name,
-        base_context(active_page=active_page, page_title=page_title),
-    )
+    context = base_context(active_page=active_page, page_title=page_title)
+    if extra_context:
+        context.update(extra_context)
+    return templates.TemplateResponse(request, template_name, context)
 
 
 def base_context(active_page: str = "", page_title: str = "") -> dict[str, object]:

@@ -15,6 +15,7 @@ from app.services.discovery import (
     get_discovery_candidate,
     list_department_imports,
     list_discovery_candidates,
+    override_discovery_exclusion,
     reject_discovery_candidate,
     save_discovery_candidate,
     suggest_directory_page,
@@ -45,7 +46,22 @@ def discovery_candidate_view(candidate: DiscoveryCandidate) -> dict[str, object]
         ),
         "Not recorded",
     )
-    return {"candidate": candidate, "evidence": evidence, "source_element": source_element}
+
+    def load_list(value: str) -> list[str]:
+        try:
+            loaded = json.loads(value or "[]")
+        except json.JSONDecodeError:
+            return []
+        return [item for item in loaded if isinstance(item, str)]
+
+    return {
+        "candidate": candidate,
+        "evidence": evidence,
+        "source_element": source_element,
+        "screening_reasons": load_list(candidate.screening_reasons_json),
+        "exclusion_reasons": load_list(candidate.exclusion_reasons_json),
+        "warning_reasons": load_list(candidate.warning_reasons_json),
+    }
 
 
 @router.get("/discovery", response_class=HTMLResponse)
@@ -167,6 +183,21 @@ def discovery_candidate_reject(
     if preview is None:
         raise HTTPException(status_code=404)
     reject_discovery_candidate(db, preview)
+    db.commit()
+    return RedirectResponse(f"/discovery/imports/{preview.import_id}", status_code=303)
+
+
+@router.post("/discovery/candidates/{preview_id}/override")
+def discovery_candidate_override(
+    preview_id: int,
+    csrf: str = Form(...),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    validate_csrf_token(csrf)
+    preview = get_discovery_candidate(db, preview_id)
+    if preview is None:
+        raise HTTPException(status_code=404)
+    override_discovery_exclusion(db, preview)
     db.commit()
     return RedirectResponse(f"/discovery/imports/{preview.import_id}", status_code=303)
 

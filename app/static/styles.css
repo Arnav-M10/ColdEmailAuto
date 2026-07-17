@@ -378,8 +378,23 @@ button {
   cursor: pointer;
 }
 
+.button-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  border-radius: 8px;
+  padding: 10px 14px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 780;
+  text-decoration: none;
+}
+
 button:hover,
-button:focus-visible {
+button:focus-visible,
+.button-link:hover,
+.button-link:focus-visible {
   background: var(--accent-dark);
 }
 
@@ -482,6 +497,13 @@ th {
   align-items: flex-start;
 }
 
+.chip-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-end;
+}
+
 .mini-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -517,6 +539,16 @@ th {
   border-radius: 8px;
   padding: 10px;
   background: #ffffff;
+}
+
+.reason-list {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  color: var(--muted);
+}
+
+.reason-list li {
+  margin: 6px 0;
 }
 
 .secondary-button {

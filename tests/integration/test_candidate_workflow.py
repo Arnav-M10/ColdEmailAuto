@@ -353,5 +353,91 @@ def test_discovery_homepage_requires_directory_approval(
 
     assert imported.status_code == 200
     assert "Tracy Slatyer" in imported.text
+    assert "Ranking explanation" in imported.text
     assert "Source URL" in imported.text
     assert "Source element" in imported.text
+
+
+def test_discovery_exclusion_requires_manual_override(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    faculty_html = """
+    <main>
+      <section class="faculty-card">
+        <h3><a href="/faculty/retired-person/">Retired Person</a></h3>
+        <div class="faculty-card__job-title">Professor of Physics, Emeritus</div>
+        <p>Retired experimental hardware instrumentation researcher.</p>
+      </section>
+    </main>
+    """
+
+    class FakeFetcher:
+        def fetch(self, url: str, *, expected: str = "html") -> FetchResult:
+            return FetchResult(
+                url=url,
+                final_url="https://physics.example.edu/faculty/",
+                status_code=200,
+                content_type="text/html",
+                body=faculty_html.encode("utf-8"),
+                sha256="d" * 64,
+                robots_allowed=True,
+            )
+
+    monkeypatch.setattr("app.routes.discovery.SafeFetcher", FakeFetcher)
+    client = build_test_client(tmp_path)
+
+    imported = client.post(
+        "/discovery/import",
+        data={
+            "csrf": csrf_token(),
+            "source_url": "https://physics.example.edu/faculty/",
+            "institution": "Example University",
+            "department": "Physics",
+        },
+        follow_redirects=True,
+    )
+
+    assert imported.status_code == 200
+    assert "Retired Person" in imported.text
+    assert "Excluded:" in imported.text
+    assert "Override exclusion" in imported.text
+
+    blocked = client.post(
+        "/discovery/candidates/1/save",
+        data={"csrf": csrf_token()},
+        follow_redirects=False,
+    )
+    assert blocked.status_code == 400
+
+    override = client.post(
+        "/discovery/candidates/1/override",
+        data={"csrf": csrf_token()},
+        follow_redirects=True,
+    )
+    assert override.status_code == 200
+    assert "Manual override" in override.text
+
+    saved = client.post(
+        "/discovery/candidates/1/save",
+        data={"csrf": csrf_token()},
+        follow_redirects=True,
+    )
+    assert saved.status_code == 200
+    assert "Retired Person" in saved.text
+
+
+def test_dashboard_uses_real_workflow_counts(tmp_path: Path) -> None:
+    client = build_test_client(tmp_path)
+    client.post(
+        "/candidates",
+        data={"csrf": csrf_token(), "full_name": "Professor Jane Doe"},
+    )
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert "Workflow Dashboard" in response.text
+    assert "Import Department" in response.text
+    assert "Candidates shortlisted" in response.text
+    assert "Missing email" in response.text

@@ -24,6 +24,7 @@ This log records completed implementation milestones. Detailed behavior changes 
 - Phase 2.1 - safe web retrieval foundation with SSRF blocking, redirect revalidation, robots checks, response caps, and discovery review tables.
 - Phase 2.2 - department discovery importer, five-layout extraction coverage, transparent candidate scoring, and review-before-save UI.
 - Phase 2.3 - discovery false-positive fix: homepages resolve to an approved faculty directory first, person extraction requires source structure plus supporting signals, source elements are shown for every preview, and MIT Physics homepage navigation/program/news text is covered by regression tests. Live MIT smoke test resolved `https://physics.mit.edu/` to `https://physics.mit.edu/faculty/` and found 108 faculty profiles with no rejected navigation/program labels as names.
+- Phase 2.4 - candidate screening and ranking: discovery previews now store inclusion/exclusion status, evidence-based ranking reasons, exclusion reasons, warning reasons, manual override state, and a screening score. The dashboard now reports real local workflow counts instead of placeholder cards.
 
 ## Phase 3
 

@@ -44,6 +44,10 @@ Use Discovery to paste one official department homepage or people page at a time
 
 Each preview must look like a real person and have a supporting signal such as an academic title, profile link, university email, research role, or faculty-card structure. Navigation labels, program names, headings, and news items are rejected. The review card shows the source URL and exact source element before anything can be saved as a candidate.
 
+Discovery previews are screened before saving. Emeritus, retired, inactive, and duplicate/local-contacted people are excluded by default; hardware-heavy profiles without a clear computational path and same-group overlaps are flagged. Each score shows simple evidence-based reasons, and exclusions can be manually overridden from the review card.
+
+The dashboard shows local workflow counts for imports, discovered and excluded previews, shortlisted candidates, papers, PDFs, analyses, drafts awaiting review, missing email, missing full text, and failures.
+
 ## Phase 3 Publication Memory
 
 Open a candidate to add publication metadata manually, including a pasted Google Scholar URL or author profile as source context. The app does not scrape Scholar. Publications are deduplicated by DOI, arXiv ID, OpenAlex ID, or title fingerprint. Author identity matches can remain marked for review when affiliation evidence is weak.

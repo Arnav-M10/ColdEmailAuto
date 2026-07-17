@@ -65,7 +65,9 @@ The review schema is intentionally separate from `candidates` so department page
 
 ## Phase 2 Discovery Review UI
 
-The Discovery page accepts one official department URL at a time. Fetched pages are parsed into `DiscoveryCandidate` previews with role category, research summary, active topics, remote feasibility, mentoring likelihood, research overlap, confidence, score, official email, homepage, evidence, and warnings. Candidates can be rejected or saved individually. Saving creates the permanent candidate and verified email only after duplicate checks pass.
+The Discovery page accepts one official department URL at a time. Homepages are resolved to an official faculty or people directory before import. Fetched pages are parsed into `DiscoveryCandidate` previews with role category, research summary, active topics, remote feasibility, mentoring likelihood, research overlap, confidence, score, official email, homepage, evidence, source element, and warnings.
+
+`app.services.candidate_screening` adds the candidate-screening layer. It excludes emeritus, retired, inactive, and duplicate/local-contacted people by default; flags experimental/hardware-heavy profiles without computational paths; warns on same-group overlaps with contacted people; and ranks using research fit, remote/computational feasibility, career-stage accessibility, recent activity, mentoring signals, and realistic contribution paths. Saving an excluded preview is blocked until the user manually overrides the exclusion.
 
 ## Phase 3 Publication Memory
 

@@ -14,7 +14,9 @@ from app.models.discovery import (
     DepartmentImportStatus,
     DiscoveryCandidate,
     DiscoveryDecision,
+    DiscoveryScreeningStatus,
 )
+from app.services.candidate_screening import ScreeningContext, screen_candidate
 from app.services.candidates import (
     add_email_address,
     create_candidate,
@@ -863,6 +865,19 @@ def create_department_import(
             email=preview.official_email,
         )
         warnings.extend(f"Possible duplicate: {warning.reason}" for warning in duplicate_warnings)
+        screening = screen_candidate(
+            session,
+            ScreeningContext(
+                full_name=preview.full_name,
+                title=preview.title,
+                institution=institution,
+                department=department,
+                research_summary=preview.research_summary,
+                active_topics=preview.active_topics,
+                role_category=preview.role_category,
+                duplicate_reasons=[warning.reason for warning in duplicate_warnings],
+            ),
+        )
         session.add(
             DiscoveryCandidate(
                 import_id=department_import.id,
@@ -883,6 +898,12 @@ def create_department_import(
                 source_url=preview.source_url,
                 evidence_json=json.dumps(preview.evidence),
                 warnings_json=json.dumps(warnings),
+                screening_status=screening.status,
+                screening_score=screening.score,
+                screening_reasons_json=json.dumps(screening.reasons),
+                exclusion_reasons_json=json.dumps(screening.exclusions),
+                warning_reasons_json=json.dumps(screening.warnings),
+                override_exclusion=False,
                 decision=DiscoveryDecision.REVIEW_PENDING,
             ),
         )
@@ -906,7 +927,11 @@ def list_discovery_candidates(session: Session, import_id: int) -> list[Discover
         session.scalars(
             select(DiscoveryCandidate)
             .where(DiscoveryCandidate.import_id == import_id)
-            .order_by(DiscoveryCandidate.score.desc()),
+            .order_by(
+                DiscoveryCandidate.screening_status == DiscoveryScreeningStatus.EXCLUDED,
+                DiscoveryCandidate.screening_score.desc(),
+                DiscoveryCandidate.score.desc(),
+            ),
         ),
     )
 
@@ -917,6 +942,17 @@ def get_discovery_candidate(session: Session, preview_id: int) -> DiscoveryCandi
 
 def reject_discovery_candidate(session: Session, preview: DiscoveryCandidate) -> None:
     preview.decision = DiscoveryDecision.REJECTED
+
+
+def override_discovery_exclusion(session: Session, preview: DiscoveryCandidate) -> None:
+    preview.override_exclusion = True
+    preview.warning_reasons_json = json.dumps(
+        [
+            *json.loads(preview.warning_reasons_json or "[]"),
+            "Manual override: exclusion allowed by user review.",
+        ],
+    )
+    session.add(preview)
 
 
 def save_discovery_candidate(session: Session, preview: DiscoveryCandidate) -> Candidate:
@@ -932,6 +968,13 @@ def save_discovery_candidate(session: Session, preview: DiscoveryCandidate) -> C
     )
     if duplicate_warnings:
         raise ValueError("Resolve duplicate warnings before saving this candidate.")
+    if (
+        preview.screening_status == DiscoveryScreeningStatus.EXCLUDED
+        and not preview.override_exclusion
+    ):
+        raise ValueError(
+            "This preview is excluded by default. Override the exclusion before saving.",
+        )
     candidate = create_candidate(
         session,
         full_name=preview.full_name,
