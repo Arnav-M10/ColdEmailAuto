@@ -15,3 +15,4 @@ All notable project changes will be documented here.
 - FastAPI application shell with placeholder pages.
 - Initial no-send regression test.
 - SQLite database foundation with SQLAlchemy and Alembic.
+- Structured request logging, redaction helpers, request IDs, and secure headers.

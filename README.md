@@ -98,6 +98,8 @@ alembic upgrade head
 
 The app also creates the Phase 0 SQLite tables automatically on local startup. Runtime database files under `data/` are ignored by Git.
 
+Logs are structured JSON and are intended for local troubleshooting. Do not paste logs into public systems without reviewing them for private data.
+
 Baseline:
 
 - Python 3.12.

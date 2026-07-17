@@ -33,3 +33,7 @@ The no-send policy is centralized in `app/safety.py` and covered by tests. Futur
 The Phase 0 database is SQLite at `data/outreach.db` by default. SQLAlchemy owns the model definitions and Alembic owns migrations.
 
 The app creates the foundation tables on local startup so the health check and UI remain easy to run. Alembic migrations remain the durable upgrade path for explicit schema changes.
+
+## Observability and HTTP Safety
+
+Every HTTP response receives a request ID and secure browser headers. Requests are logged as structured JSON with method, path, status code, and duration. Logs must not include request bodies, full email bodies, paper contents, tokens, authorization headers, or API keys.
