@@ -67,6 +67,38 @@
   </section>
 
   <section class="panel secondary-panel">
+    <div class="panel-header">
+      <div>
+        <h2>Manual sent tracking</h2>
+        <p>Records that you sent the approved draft yourself and suggests one follow-up date.</p>
+      </div>
+    </div>
+    {% if approved_draft_count > 0 and candidate.status in ["DRAFT_READY", "OUTLOOK_DRAFT_CREATED", "SENT"] and not follow_up_tasks %}
+      <form class="inline-form" method="post" action="/candidates/{{ candidate.id }}/mark-sent">
+        <input type="hidden" name="csrf" value="{{ csrf_token }}">
+        <label>Sent date <input name="sent_on" type="date" value="{{ today }}" required></label>
+        <button type="submit">Mark manually sent</button>
+      </form>
+    {% elif follow_up_tasks %}
+      <div class="table-wrap compact">
+        <table>
+          <thead><tr><th>Due</th><th>Status</th><th>Notes</th></tr></thead>
+          <tbody>
+            {% for task in follow_up_tasks %}
+              <tr><td>{{ task.due_at.strftime("%Y-%m-%d") }}</td><td>{{ task.status }}</td><td>{{ task.notes or "" }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty-state">
+        <h3>Not ready</h3>
+        <p>A locally approved draft is required before sent tracking and follow-up suggestions are enabled.</p>
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="panel secondary-panel">
     <div class="panel-header"><div><h2>Audit history</h2><p>Important manual actions are recorded locally.</p></div></div>
     {% if events %}
       <div class="event-list">

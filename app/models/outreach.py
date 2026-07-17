@@ -16,6 +16,8 @@ class OutreachEventType(StrEnum):
     DRAFT_CREATED = "DRAFT_CREATED"
     DRAFT_APPROVED = "DRAFT_APPROVED"
     MANUALLY_MARKED_SENT = "MANUALLY_MARKED_SENT"
+    FOLLOW_UP_SCHEDULED = "FOLLOW_UP_SCHEDULED"
+    FOLLOW_UP_COMPLETED = "FOLLOW_UP_COMPLETED"
     REPLY_RECORDED = "REPLY_RECORDED"
     DECLINED = "DECLINED"
 
@@ -37,4 +39,3 @@ class FollowUpTask(Base, TimestampMixin):
     due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     status: Mapped[str] = mapped_column(String(40), nullable=False, default="OPEN")
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-

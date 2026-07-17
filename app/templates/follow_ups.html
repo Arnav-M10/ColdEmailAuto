@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <h2>Follow-Up Tracker</h2>
+        <p>Suggestions only. No automatic replies, scheduling, tracking pixels, or sending.</p>
+      </div>
+    </div>
+    {% if tasks %}
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Candidate</th><th>Due</th><th>Status</th><th>Notes</th><th></th></tr></thead>
+          <tbody>
+            {% for task in tasks %}
+              {% set candidate = candidates.get(task.candidate_id) %}
+              <tr>
+                <td>
+                  {% if candidate %}
+                    <a href="/candidates/{{ candidate.id }}">{{ candidate.full_name }}</a>
+                  {% else %}
+                    Candidate {{ task.candidate_id }}
+                  {% endif %}
+                </td>
+                <td>
+                  <span class="status-chip{% if task.due_at.date() <= today and task.status == 'OPEN' %} attention{% endif %}">
+                    {{ task.due_at.strftime("%Y-%m-%d") }}
+                  </span>
+                </td>
+                <td>{{ task.status }}</td>
+                <td>{{ task.notes or "" }}</td>
+                <td>
+                  {% if task.status == "OPEN" %}
+                    <form method="post" action="/follow-ups/{{ task.id }}/complete">
+                      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+                      <button type="submit">Mark done</button>
+                    </form>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty-state">
+        <h3>No follow-ups scheduled</h3>
+        <p>After a locally approved draft is manually marked sent, the app can suggest one follow-up date.</p>
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

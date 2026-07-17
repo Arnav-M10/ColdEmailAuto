@@ -34,6 +34,10 @@ Open a candidate and upload a lawful PDF manually. The app validates the PDF sig
 
 Open a paper, enter a manual analysis, and include at least one evidence-backed claim. Draft generation uses that evidence and Arnav's local profile. Draft approval is local only and is blocked unless a verified official email exists and the required resume and portfolio PDFs are valid.
 
+## Phase 1 Follow-Up Tracking
+
+After you manually send an approved draft outside this app, open the candidate and mark it sent. The app suggests one follow-up date 8 business days later. Follow-ups are suggestions only; the app does not create follow-up emails, schedule sends, track opens, or send anything.
+
 Later phases will document:
 
 - Profile setup.

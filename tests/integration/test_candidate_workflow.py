@@ -1,5 +1,6 @@
 from collections.abc import Generator
 from pathlib import Path
+from typing import Any
 
 from fastapi.testclient import TestClient
 from pypdf import PdfWriter
@@ -10,7 +11,7 @@ from app.main import create_app
 from app.security.csrf import csrf_token
 
 
-def build_test_client(tmp_path: Path) -> TestClient:
+def build_test_context(tmp_path: Path) -> tuple[TestClient, Any]:
     engine = create_engine_for_url(f"sqlite:///{tmp_path / 'test.db'}")
     initialize_database(engine)
     session_factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
@@ -21,7 +22,12 @@ def build_test_client(tmp_path: Path) -> TestClient:
             yield session
 
     app.dependency_overrides[get_db] = override_get_db
-    return TestClient(app)
+    return TestClient(app), session_factory
+
+
+def build_test_client(tmp_path: Path) -> TestClient:
+    client, _session_factory = build_test_context(tmp_path)
+    return client
 
 
 def test_candidate_can_be_created_and_opened(tmp_path: Path) -> None:
@@ -197,3 +203,45 @@ def test_analysis_generates_reviewable_draft(tmp_path: Path) -> None:
     assert draft_response.status_code == 200
     assert "I enjoyed reading your paper" in draft_response.text
     assert "Do not send" in draft_response.text
+
+
+def test_approved_draft_can_be_marked_sent_with_follow_up_suggestion(tmp_path: Path) -> None:
+    client, session_factory = build_test_context(tmp_path)
+    client.post(
+        "/contact-history/import",
+        data={"csrf": csrf_token()},
+        files={
+            "file": (
+                "contacts.csv",
+                b"name,email,institution,status\n"
+                b"Professor Jane Doe,jane@example.edu,Example,DRAFT_READY\n",
+            ),
+        },
+    )
+
+    from app.models.draft import Draft
+
+    with session_factory() as session:
+        session.add(
+            Draft(
+                candidate_id=1,
+                subject="Research inquiry",
+                body_text="Approved local draft.",
+                body_html=None,
+                word_count=90,
+                generation_version="test",
+                approved_by_user=True,
+            ),
+        )
+        session.commit()
+
+    response = client.post(
+        "/candidates/1/mark-sent",
+        data={"csrf": csrf_token(), "sent_on": "2026-07-17"},
+        follow_redirects=True,
+    )
+    follow_ups = client.get("/follow-ups")
+
+    assert response.status_code == 200
+    assert "Suggested follow-up" in response.text
+    assert "2026-07-29" in follow_ups.text

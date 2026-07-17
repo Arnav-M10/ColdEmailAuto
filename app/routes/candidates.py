@@ -1,3 +1,4 @@
+from datetime import date
 from typing import cast
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
@@ -21,6 +22,7 @@ from app.services.candidates import (
     preview_contacted_csv,
     soft_delete_candidate,
 )
+from app.services.followups import approved_drafts_for_candidate, list_follow_ups_for_candidate
 from app.services.papers import store_manual_pdf
 
 router = APIRouter()
@@ -108,7 +110,10 @@ def candidate_detail(
             "candidate": candidate,
             "emails": emails,
             "events": events,
+            "approved_draft_count": len(approved_drafts_for_candidate(db, candidate_id)),
+            "follow_up_tasks": list_follow_ups_for_candidate(db, candidate_id),
             "statuses": list(CandidateStatus),
+            "today": date.today().isoformat(),
             "csrf_token": csrf_token(),
         },
     )

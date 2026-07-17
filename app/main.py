@@ -14,6 +14,7 @@ from app.db.session import check_database, initialize_database
 from app.observability.logging import configure_logging
 from app.routes.candidates import router as candidates_router
 from app.routes.drafts import router as drafts_router
+from app.routes.followups import router as followups_router
 from app.routes.papers import router as papers_router
 from app.safety import assert_no_send_capability
 from app.security.headers import apply_security_headers
@@ -45,6 +46,7 @@ def create_app() -> FastAPI:
     app.state.base_context = base_context
     app.include_router(candidates_router)
     app.include_router(drafts_router)
+    app.include_router(followups_router)
     app.include_router(papers_router)
 
     @app.middleware("http")

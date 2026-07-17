@@ -422,6 +422,11 @@ th {
   font-weight: 750;
 }
 
+.status-chip.attention {
+  background: var(--warn-bg);
+  color: var(--warn-text);
+}
+
 .text-link {
   color: var(--accent-dark);
   font-weight: 750;
