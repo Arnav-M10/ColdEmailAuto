@@ -1,3 +1,4 @@
+import json
 from typing import cast
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
@@ -5,6 +6,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.models.discovery import DiscoveryCandidate
 from app.security.csrf import csrf_token, validate_csrf_token
 from app.services.discovery import (
     create_department_import,
@@ -15,6 +17,7 @@ from app.services.discovery import (
     list_discovery_candidates,
     reject_discovery_candidate,
     save_discovery_candidate,
+    suggest_directory_page,
 )
 from app.services.web_safety import SafeFetcher, SafeFetchError
 
@@ -26,6 +29,23 @@ def render(request: Request, template_name: str, context: dict[str, object]) -> 
     base_context = request.app.state.base_context()
     base_context.update(context)
     return cast(HTMLResponse, templates.TemplateResponse(request, template_name, base_context))
+
+
+def discovery_candidate_view(candidate: DiscoveryCandidate) -> dict[str, object]:
+    evidence_json = candidate.evidence_json
+    try:
+        evidence = json.loads(evidence_json)
+    except json.JSONDecodeError:
+        evidence = []
+    source_element = next(
+        (
+            item.removeprefix("Source element: ")
+            for item in evidence
+            if isinstance(item, str) and item.startswith("Source element: ")
+        ),
+        "Not recorded",
+    )
+    return {"candidate": candidate, "evidence": evidence, "source_element": source_element}
 
 
 @router.get("/discovery", response_class=HTMLResponse)
@@ -46,14 +66,16 @@ def discovery_index(request: Request, db: Session = Depends(get_db)) -> HTMLResp
 def discovery_import(
     csrf: str = Form(...),
     source_url: str = Form(...),
+    directory_url: str = Form(""),
     institution: str = Form(""),
     department: str = Form(""),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
     validate_csrf_token(csrf)
+    import_url = directory_url or source_url
     fetcher = SafeFetcher()
     try:
-        fetch_result = fetcher.fetch(source_url, expected="html")
+        fetch_result = fetcher.fetch(import_url, expected="html")
     except SafeFetchError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     previews = extract_department_candidates(
@@ -74,6 +96,41 @@ def discovery_import(
     return RedirectResponse(f"/discovery/imports/{department_import.id}", status_code=303)
 
 
+@router.post("/discovery/resolve", response_class=HTMLResponse)
+def discovery_resolve_directory(
+    request: Request,
+    csrf: str = Form(...),
+    source_url: str = Form(...),
+    institution: str = Form(""),
+    department: str = Form(""),
+    db: Session = Depends(get_db),
+) -> HTMLResponse:
+    validate_csrf_token(csrf)
+    fetcher = SafeFetcher()
+    try:
+        fetch_result = fetcher.fetch(source_url, expected="html")
+    except SafeFetchError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    suggestion = suggest_directory_page(
+        fetch_result.body.decode("utf-8", errors="replace"),
+        source_url=fetch_result.final_url,
+    )
+    return render(
+        request,
+        "discovery.html",
+        {
+            "active_page": "discovery",
+            "page_title": "Discovery",
+            "imports": list_department_imports(db),
+            "csrf_token": csrf_token(),
+            "directory_suggestion": suggestion,
+            "source_url": source_url,
+            "institution": institution,
+            "department": department,
+        },
+    )
+
+
 @router.get("/discovery/imports/{import_id}", response_class=HTMLResponse)
 def discovery_import_detail(
     request: Request,
@@ -90,7 +147,10 @@ def discovery_import_detail(
             "active_page": "discovery",
             "page_title": "Discovery Review",
             "department_import": department_import,
-            "candidates": list_discovery_candidates(db, import_id),
+            "candidates": [
+                discovery_candidate_view(candidate)
+                for candidate in list_discovery_candidates(db, import_id)
+            ],
             "csrf_token": csrf_token(),
         },
     )

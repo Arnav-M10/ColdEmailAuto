@@ -498,6 +498,27 @@ th {
   color: var(--muted);
 }
 
+.source-details {
+  margin: 12px 0;
+}
+
+.source-details summary {
+  cursor: pointer;
+  font-weight: 750;
+  color: var(--accent-dark);
+}
+
+.source-details pre {
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: #ffffff;
+}
+
 .secondary-button {
   background: #475569;
 }

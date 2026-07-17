@@ -5,17 +5,44 @@
     <div class="panel-header">
       <div>
         <h2>Department Import</h2>
-        <p>One official department page at a time. Imported people must be reviewed before saving.</p>
+        <p>Paste an official department homepage or directory. Homepages are resolved to a faculty or people directory before import.</p>
       </div>
     </div>
-    <form class="form-grid" method="post" action="/discovery/import">
+    <form class="form-grid" method="post" action="/discovery/resolve">
       <input type="hidden" name="csrf" value="{{ csrf_token }}">
-      <label class="wide">Official department URL <input name="source_url" type="url" required></label>
-      <label>Institution <input name="institution" placeholder="Example University"></label>
-      <label>Department <input name="department" placeholder="Astronomy"></label>
-      <div class="form-actions wide"><button type="submit">Fetch for review</button></div>
+      <label class="wide">Official department URL <input name="source_url" type="url" value="{{ source_url or '' }}" required></label>
+      <label>Institution <input name="institution" value="{{ institution or '' }}" placeholder="Example University"></label>
+      <label>Department <input name="department" value="{{ department or '' }}" placeholder="Astronomy"></label>
+      <div class="form-actions wide"><button type="submit">Find directory</button></div>
     </form>
   </section>
+
+  {% if directory_suggestion %}
+    <section class="panel secondary-panel">
+      <div class="panel-header">
+        <div>
+          <h2>Approve Directory Page</h2>
+          <p>The importer will use this official directory URL only after you approve it.</p>
+        </div>
+        <span class="status-pill">{{ "%.0f"|format(directory_suggestion.confidence * 100) }}% match</span>
+      </div>
+      <dl class="mini-list">
+        <div><dt>Submitted URL</dt><dd>{{ directory_suggestion.source_url }}</dd></div>
+        <div><dt>Directory URL</dt><dd><a href="{{ directory_suggestion.directory_url }}">{{ directory_suggestion.directory_url }}</a></dd></div>
+        <div><dt>Reason</dt><dd>{{ directory_suggestion.reason }}</dd></div>
+      </dl>
+      <form class="form-grid" method="post" action="/discovery/import">
+        <input type="hidden" name="csrf" value="{{ csrf_token }}">
+        <input type="hidden" name="source_url" value="{{ source_url }}">
+        <input type="hidden" name="directory_url" value="{{ directory_suggestion.directory_url }}">
+        <input type="hidden" name="institution" value="{{ institution or '' }}">
+        <input type="hidden" name="department" value="{{ department or '' }}">
+        <div class="form-actions wide">
+          <button type="submit">Approve and import directory</button>
+        </div>
+      </form>
+    </section>
+  {% endif %}
 
   <section class="panel secondary-panel">
     <div class="panel-header">
@@ -43,7 +70,7 @@
     {% else %}
       <div class="empty-state">
         <h3>No imports yet</h3>
-        <p>Paste an official department people page to create a review queue.</p>
+        <p>Paste an official department homepage or people page to resolve the directory first.</p>
       </div>
     {% endif %}
   </section>

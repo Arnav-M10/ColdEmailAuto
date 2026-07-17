@@ -14,7 +14,8 @@
     {% endif %}
     {% if candidates %}
       <div class="discovery-grid">
-        {% for candidate in candidates %}
+        {% for item in candidates %}
+          {% set candidate = item.candidate %}
           <article class="discovery-card">
             <div class="card-row">
               <div>
@@ -32,8 +33,13 @@
               <div><dt>Overlap</dt><dd>{{ candidate.research_overlap or "Needs review" }}</dd></div>
               <div><dt>Email</dt><dd>{{ candidate.official_email or "Not shown" }}</dd></div>
               <div><dt>Homepage</dt><dd>{% if candidate.official_homepage %}<a href="{{ candidate.official_homepage }}">{{ candidate.official_homepage }}</a>{% else %}Not shown{% endif %}</dd></div>
+              <div><dt>Source URL</dt><dd><a href="{{ candidate.source_url }}">{{ candidate.source_url }}</a></dd></div>
             </dl>
             <p class="muted-text">{{ candidate.research_summary or "" }}</p>
+            <details class="source-details">
+              <summary>Source element</summary>
+              <pre>{{ item.source_element }}</pre>
+            </details>
             <div class="form-actions split-actions">
               <form method="post" action="/discovery/candidates/{{ candidate.id }}/reject">
                 <input type="hidden" name="csrf" value="{{ csrf_token }}">

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.db.session import create_engine_for_url, get_db, initialize_database
 from app.main import create_app
 from app.security.csrf import csrf_token
+from app.services.web_safety import FetchResult
 
 
 def build_test_context(tmp_path: Path) -> tuple[TestClient, Any]:
@@ -275,3 +276,82 @@ def test_candidate_publication_memory_accepts_manual_scholar_source(tmp_path: Pa
     assert response.status_code == 200
     assert "Cosmology With Public Survey Data" in response.text
     assert "Cosmology With Public Survey Data" in publications.text
+
+
+def test_discovery_homepage_requires_directory_approval(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    homepage_html = """
+    <nav>
+      <a href="/faculty/">Faculty Directory</a>
+      <a href="/graduate-program/">Graduate Program</a>
+      <a href="/undergraduate-program/">Undergraduate Program</a>
+    </nav>
+    <main>
+      <h1>MIT Physics</h1>
+      <a href="/graduate-program/">Graduate Program</a>
+      <a href="/undergraduate-program/">Undergraduate Program</a>
+    </main>
+    """
+    faculty_html = """
+    <main>
+      <section class="faculty-card">
+        <h3><a href="/faculty/tracy-slatyer/">Tracy Slatyer</a></h3>
+        <p>
+          Professor of Physics. Research focuses on dark matter
+          and analysis of astrophysical datasets.
+        </p>
+        <p>Email: tslatyer@example.edu</p>
+      </section>
+    </main>
+    """
+
+    class FakeFetcher:
+        def fetch(self, url: str, *, expected: str = "html") -> FetchResult:
+            body = faculty_html if url.endswith("/faculty/") else homepage_html
+            final_url = "https://physics.mit.edu/faculty/" if url.endswith("/faculty/") else url
+            return FetchResult(
+                url=url,
+                final_url=final_url,
+                status_code=200,
+                content_type="text/html",
+                body=body.encode("utf-8"),
+                sha256="c" * 64,
+                robots_allowed=True,
+            )
+
+    monkeypatch.setattr("app.routes.discovery.SafeFetcher", FakeFetcher)
+    client = build_test_client(tmp_path)
+
+    resolve = client.post(
+        "/discovery/resolve",
+        data={
+            "csrf": csrf_token(),
+            "source_url": "https://physics.mit.edu/",
+            "institution": "MIT",
+            "department": "Physics",
+        },
+    )
+
+    assert resolve.status_code == 200
+    assert "Approve Directory Page" in resolve.text
+    assert "https://physics.mit.edu/faculty/" in resolve.text
+    assert "Graduate Program Undergraduate Program" not in resolve.text
+
+    imported = client.post(
+        "/discovery/import",
+        data={
+            "csrf": csrf_token(),
+            "source_url": "https://physics.mit.edu/",
+            "directory_url": "https://physics.mit.edu/faculty/",
+            "institution": "MIT",
+            "department": "Physics",
+        },
+        follow_redirects=True,
+    )
+
+    assert imported.status_code == 200
+    assert "Tracy Slatyer" in imported.text
+    assert "Source URL" in imported.text
+    assert "Source element" in imported.text

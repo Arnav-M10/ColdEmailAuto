@@ -40,7 +40,9 @@ After you manually send an approved draft outside this app, open the candidate a
 
 ## Phase 2 Department Discovery
 
-Use Discovery to import one official department people page at a time. The app fetches through the safe retrieval boundary, extracts eligible researchers into a review queue, and shows role, research summary, active topics, remote feasibility, mentoring likelihood, overlap, confidence, official email, homepage, score, and warnings. Nothing is saved as a candidate until you review and save one person.
+Use Discovery to paste one official department homepage or people page at a time. If you paste a homepage, the app first finds the official faculty or people directory and shows that directory URL for approval. Only after you approve the directory does it extract eligible researchers into a review queue.
+
+Each preview must look like a real person and have a supporting signal such as an academic title, profile link, university email, research role, or faculty-card structure. Navigation labels, program names, headings, and news items are rejected. The review card shows the source URL and exact source element before anything can be saved as a candidate.
 
 ## Phase 3 Publication Memory
 
