@@ -336,6 +336,7 @@ dd {
 .form-grid input,
 .form-grid select,
 .form-grid textarea,
+.inline-form input,
 .inline-form select {
   width: 100%;
   border: 1px solid var(--line);
@@ -348,6 +349,7 @@ dd {
 .form-grid input:focus,
 .form-grid select:focus,
 .form-grid textarea:focus,
+.inline-form input:focus,
 .inline-form select:focus {
   outline: 3px solid rgb(15 118 110 / 18%);
   border-color: var(--accent);
@@ -457,6 +459,18 @@ th {
   gap: 10px;
   align-items: center;
   flex-wrap: wrap;
+}
+
+.publication-action-cell {
+  min-width: 280px;
+}
+
+.publication-fetch-form {
+  margin-bottom: 8px;
+}
+
+.publication-fetch-form input {
+  max-width: 180px;
 }
 
 .checkbox-row {

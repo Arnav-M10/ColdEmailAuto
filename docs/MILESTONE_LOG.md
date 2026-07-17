@@ -32,6 +32,7 @@ This log records completed implementation milestones. Detailed behavior changes 
 - Phase 3.2 - Publication Memory UI and manual Scholar reconciliation without Scholar scraping.
 - Phase 3.3 - live OpenAlex/Crossref publication retrieval with cached API JSON, author identity confidence scoring, manual OpenAlex author-ID confirmation when uncertain, DOI confirmation through Crossref, recent-work retrieval, deduplication, and local provenance timestamps.
 - Phase 3.4 - paper selection gate: candidate publication rows now show ranking evidence, authorship position, central-role signal, fit score, full-text availability, and warnings. Publication PDF retrieval and publication-linked analysis are blocked until the user explicitly approves the paper.
+- Phase 3.5 - publication workflow repair: `/publications` now shows saved candidates before publications exist, exposes a clear per-candidate `Fetch Publications` action, and has an end-to-end MIT Physics regression covering directory approval, Kevin Burdge save, OpenAlex/Crossref retrieval, persistence, and publication rendering.
 
 ## Phase 4
 

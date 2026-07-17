@@ -50,7 +50,7 @@ The dashboard shows local workflow counts for imports, discovered and excluded p
 
 ## Phase 3 Publication Memory
 
-Open a candidate to retrieve recent publications from OpenAlex and confirm DOI metadata through Crossref. If OpenAlex author identity is uncertain, the app blocks automatic import and asks for manual confirmation with a specific OpenAlex author ID. Results are cached under ignored local cache files and are deduplicated by DOI, arXiv ID, OpenAlex ID, or title fingerprint.
+Open Publications to see saved candidates and use `Fetch Publications` for one candidate at a time. You can also open a candidate and use the same action from the candidate detail page. The app retrieves recent publications from OpenAlex and confirms DOI metadata through Crossref. If OpenAlex author identity is uncertain, the app blocks automatic import and asks for manual confirmation with a specific OpenAlex author ID. Results are cached under ignored local cache files and are deduplicated by DOI, arXiv ID, OpenAlex ID, or title fingerprint.
 
 You can still add publication metadata manually, including a pasted Google Scholar URL or author profile as source context. The app does not scrape Scholar. Author identity matches can remain marked for review when affiliation evidence is weak.
 

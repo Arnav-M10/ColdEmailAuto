@@ -57,14 +57,17 @@ class FakeAIClient:
 
 
 def provider_config(*, retries: int = 0, api_key: str | None = "test-key") -> Settings:
-    return Settings(
-        ai_provider="gemini",
-        ai_model="gemini-test",
-        ai_api_key=api_key,
-        ai_retries=retries,
-        ai_timeout_seconds=1.0,
-        ai_temperature=0.0,
-        ai_max_tokens=512,
+    return Settings.model_validate(
+        {
+            "ai_provider": "gemini",
+            "ai_model": "gemini-test",
+            "ai_api_key": api_key,
+            "gemini_api_key": None,
+            "ai_retries": retries,
+            "ai_timeout_seconds": 1.0,
+            "ai_temperature": 0.0,
+            "ai_max_tokens": 512,
+        },
     )
 
 

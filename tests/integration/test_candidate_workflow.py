@@ -14,7 +14,7 @@ from app.models.paper import PaperAnalysis, PaperFile
 from app.models.publication import Authorship, Publication
 from app.security.csrf import csrf_token
 from app.services.candidates import create_candidate
-from app.services.metadata import title_fingerprint
+from app.services.metadata import OpenAlexAuthorCandidate, PublicationMetadata, title_fingerprint
 from app.services.web_safety import FetchResult
 
 
@@ -435,8 +435,8 @@ def test_ai_analysis_missing_key_returns_clear_error_without_fake_analysis(
     tmp_path: Path,
     monkeypatch: Any,
 ) -> None:
-    monkeypatch.delenv("AI_API_KEY", raising=False)
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.setenv("AI_API_KEY", "")
+    monkeypatch.setenv("GEMINI_API_KEY", "")
     get_settings.cache_clear()
     client, session_factory = build_test_context(tmp_path)
     settings = get_settings()
@@ -570,6 +570,161 @@ def test_discovery_homepage_requires_directory_approval(
     assert "Ranking explanation" in imported.text
     assert "Source URL" in imported.text
     assert "Source element" in imported.text
+
+
+def test_mit_discovery_save_then_fetch_publications_for_kevin_burdge(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    homepage_html = """
+    <nav>
+      <a href="/faculty/">Faculty</a>
+      <a href="/graduate-program/">Graduate Program</a>
+    </nav>
+    <main><h1>MIT Physics</h1><a href="/faculty/">Faculty Directory</a></main>
+    """
+    faculty_html = """
+    <main>
+      <section class="faculty-card">
+        <h3><a href="/faculty/kevin-burdge/">Kevin Burdge</a></h3>
+        <p>Assistant Professor of Physics.</p>
+        <p>
+          Research: computational time-domain astrophysics, compact binaries,
+          stellar dynamics, and astronomical data analysis.
+        </p>
+        <p>Email: kburdge@example.edu</p>
+      </section>
+    </main>
+    """
+    openalex_calls: list[str] = []
+
+    class FakeFetcher:
+        def fetch(self, url: str, *, expected: str = "html") -> FetchResult:
+            assert expected == "html"
+            if url.endswith("/faculty/"):
+                return FetchResult(
+                    url=url,
+                    final_url="https://physics.mit.edu/faculty/",
+                    status_code=200,
+                    content_type="text/html",
+                    body=faculty_html.encode("utf-8"),
+                    sha256="f" * 64,
+                    robots_allowed=True,
+                )
+            return FetchResult(
+                url=url,
+                final_url="https://physics.mit.edu/",
+                status_code=200,
+                content_type="text/html",
+                body=homepage_html.encode("utf-8"),
+                sha256="e" * 64,
+                robots_allowed=True,
+            )
+
+    class FakeOpenAlexClient:
+        def search_author_candidates(self, candidate: Any) -> list[OpenAlexAuthorCandidate]:
+            openalex_calls.append(f"author:{candidate.id}:{candidate.full_name}")
+            return [
+                OpenAlexAuthorCandidate(
+                    openalex_id="https://openalex.org/AKEVIN",
+                    display_name="Kevin Burdge",
+                    orcid=None,
+                    institutions=["Massachusetts Institute of Technology"],
+                    works_count=12,
+                    confidence=0.95,
+                    reasons=["Name and institution matched MIT Physics candidate."],
+                    raw={},
+                ),
+            ]
+
+        def works_for_author(
+            self,
+            openalex_author_id: str,
+            *,
+            from_year: int | None = None,
+        ) -> list[PublicationMetadata]:
+            openalex_calls.append(f"works:{openalex_author_id}:{from_year}")
+            return [
+                PublicationMetadata(
+                    title="Relativistic Binary Evolution in Time-Domain Surveys",
+                    year=2025,
+                    venue="Example Astrophysics Journal",
+                    doi="10.1000/burdge",
+                    arxiv_id="2501.12345",
+                    openalex_id="https://openalex.org/WBURDGE",
+                    source="openalex",
+                    open_access_url="https://arxiv.org/abs/2501.12345",
+                    pdf_url="https://arxiv.org/pdf/2501.12345",
+                    authors=["Kevin Burdge", "Other Person"],
+                    author_institutions=["Massachusetts Institute of Technology"],
+                    raw={"_retrieval": {"source_url": "https://api.openalex.org/works"}},
+                ),
+            ]
+
+    class FakeCrossrefClient:
+        def work_by_doi(self, doi: str | None) -> PublicationMetadata | None:
+            openalex_calls.append(f"crossref:{doi}")
+            return None
+
+    monkeypatch.setattr("app.routes.discovery.SafeFetcher", FakeFetcher)
+    monkeypatch.setattr("app.services.metadata.OpenAlexClient", FakeOpenAlexClient)
+    monkeypatch.setattr("app.services.metadata.CrossrefClient", FakeCrossrefClient)
+    client = build_test_client(tmp_path)
+
+    resolved = client.post(
+        "/discovery/resolve",
+        data={
+            "csrf": csrf_token(),
+            "source_url": "https://physics.mit.edu/",
+            "institution": "MIT",
+            "department": "Physics",
+        },
+    )
+    assert resolved.status_code == 200
+    assert "https://physics.mit.edu/faculty/" in resolved.text
+
+    imported = client.post(
+        "/discovery/import",
+        data={
+            "csrf": csrf_token(),
+            "source_url": "https://physics.mit.edu/",
+            "directory_url": "https://physics.mit.edu/faculty/",
+            "institution": "MIT",
+            "department": "Physics",
+        },
+        follow_redirects=True,
+    )
+    assert imported.status_code == 200
+    assert "Kevin Burdge" in imported.text
+
+    saved = client.post(
+        "/discovery/candidates/1/save",
+        data={"csrf": csrf_token()},
+        follow_redirects=True,
+    )
+    assert saved.status_code == 200
+    assert "Kevin Burdge" in saved.text
+    assert "Fetch Publications" in saved.text
+
+    publication_hub = client.get("/publications")
+    assert publication_hub.status_code == 200
+    assert "Kevin Burdge" in publication_hub.text
+    assert "Fetch Publications" in publication_hub.text
+    assert "Relativistic Binary Evolution" not in publication_hub.text
+
+    fetched = client.post(
+        "/candidates/1/publications/retrieve-live",
+        data={"csrf": csrf_token()},
+        follow_redirects=True,
+    )
+    publication_hub_after = client.get("/publications")
+
+    assert fetched.status_code == 200
+    assert "Relativistic Binary Evolution in Time-Domain Surveys" in fetched.text
+    assert "Relativistic Binary Evolution in Time-Domain Surveys" in publication_hub_after.text
+    assert "author:1:Kevin Burdge" in openalex_calls
+    assert "works:https://openalex.org/AKEVIN:2021" in openalex_calls
+    assert "crossref:10.1000/burdge" in openalex_calls
 
 
 def test_discovery_exclusion_requires_manual_override(

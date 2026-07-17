@@ -6,11 +6,12 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.publication import Publication
-from app.security.csrf import validate_csrf_token
-from app.services.candidates import get_candidate
+from app.security.csrf import csrf_token, validate_csrf_token
+from app.services.candidates import get_candidate, list_candidates
 from app.services.metadata import (
     approve_publication_for_retrieval,
     assert_publication_selected_for_retrieval,
+    list_candidate_publications,
     list_publications,
     manual_publication_metadata,
     retrieve_recent_publications_for_candidate,
@@ -30,13 +31,23 @@ def render(request: Request, template_name: str, context: dict[str, object]) -> 
 
 @router.get("/publications", response_class=HTMLResponse)
 def publications_index(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
+    candidates = list_candidates(db)
+    candidate_rows = [
+        {
+            "candidate": candidate,
+            "publication_count": len(list_candidate_publications(db, candidate.id)),
+        }
+        for candidate in candidates
+    ]
     return render(
         request,
         "publications.html",
         {
             "active_page": "publications",
             "page_title": "Publications",
+            "candidate_rows": candidate_rows,
             "publications": list_publications(db),
+            "csrf_token": csrf_token(),
         },
     )
 
