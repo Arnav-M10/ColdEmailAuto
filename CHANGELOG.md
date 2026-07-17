@@ -27,3 +27,4 @@ All notable project changes will be documented here.
 - Department discovery importer, five-layout extraction tests, transparent scoring, and review-before-save UI.
 - Publication metadata memory with OpenAlex/Crossref normalization, deduplication, author identity checks, and paper scoring.
 - Publication Memory UI and manual Scholar reconciliation workflow without Scholar scraping.
+- Lawful PDF retrieval foundation with arXiv URL planning, safe PDF download, and paper source provenance.

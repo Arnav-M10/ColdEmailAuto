@@ -62,6 +62,9 @@ def store_manual_pdf(
     candidate: Candidate,
     original_filename: str,
     content: bytes,
+    publication_id: int | None = None,
+    source_url: str | None = None,
+    license_note: str | None = None,
     project_root: Path | None = None,
 ) -> PaperFile:
     settings = get_settings()
@@ -89,12 +92,15 @@ def store_manual_pdf(
 
     paper_file = PaperFile(
         candidate_id=candidate.id,
+        publication_id=publication_id,
         original_filename=Path(original_filename).name,
         stored_path=str(stored_path.relative_to(root)),
         sha256=sha256,
         size_bytes=len(content),
         page_count=parsed.page_count,
         parsed_text_path=str(text_path.relative_to(root)),
+        source_url=source_url,
+        license_note=license_note,
     )
     session.add(paper_file)
     session.flush()

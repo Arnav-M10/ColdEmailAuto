@@ -25,14 +25,16 @@ This log records completed implementation milestones. Detailed behavior changes 
 - Phase 2.2 - department discovery importer, five-layout extraction coverage, transparent candidate scoring, and review-before-save UI.
 - Phase 3.1 - publication metadata tables, OpenAlex/Crossref response normalization, metadata deduplication, author identity review, and paper scoring.
 - Phase 3.2 - Publication Memory UI and manual Scholar reconciliation without Scholar scraping.
+- Phase 4.1 - lawful PDF retrieval foundation with arXiv planning, safe PDF download, and paper source provenance.
 
-Phase 3.2 checks:
+Phase 4.1 checks:
 
 - `ruff check .` passed.
 - `mypy app tests scripts` passed.
-- `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/pytest -q` passed, 53 tests.
+- `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/pytest -q` passed, 56 tests.
 - `bandit -c pyproject.toml -r app scripts` passed.
 - `python -m scripts.secret_scan` passed.
+- `alembic upgrade head` passed.
 - `pip-audit --cache-dir /private/tmp/pip-audit-cache` passed with no known vulnerabilities.
 
 ## Latest Full Gate Set

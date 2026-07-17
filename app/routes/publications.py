@@ -5,6 +5,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.models.publication import Publication
 from app.security.csrf import validate_csrf_token
 from app.services.candidates import get_candidate
 from app.services.metadata import (
@@ -12,6 +13,7 @@ from app.services.metadata import (
     manual_publication_metadata,
     upsert_publication_with_authorship,
 )
+from app.services.retrieval import retrieve_publication_pdf
 
 router = APIRouter()
 
@@ -69,5 +71,27 @@ def candidate_add_manual_publication(
         scholar_url=scholar_url,
     )
     upsert_publication_with_authorship(db, candidate=candidate, metadata=metadata)
+    db.commit()
+    return RedirectResponse(f"/candidates/{candidate_id}", status_code=303)
+
+
+@router.post("/candidates/{candidate_id}/publications/{publication_id}/retrieve")
+def candidate_retrieve_publication_pdf(
+    candidate_id: int,
+    publication_id: int,
+    csrf: str = Form(...),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    validate_csrf_token(csrf)
+    candidate = get_candidate(db, candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=404)
+    publication = db.get(Publication, publication_id)
+    if publication is None:
+        raise HTTPException(status_code=404)
+    try:
+        retrieve_publication_pdf(db, candidate=candidate, publication=publication)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     db.commit()
     return RedirectResponse(f"/candidates/{candidate_id}", status_code=303)

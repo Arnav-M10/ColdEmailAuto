@@ -17,12 +17,15 @@ class PaperFile(Base, TimestampMixin):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     candidate_id: Mapped[int] = mapped_column(ForeignKey("candidates.id"), nullable=False)
+    publication_id: Mapped[int | None] = mapped_column(ForeignKey("publications.id"), nullable=True)
     original_filename: Mapped[str] = mapped_column(String(300), nullable=False)
     stored_path: Mapped[str] = mapped_column(String(1000), nullable=False)
     sha256: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
     page_count: Mapped[int] = mapped_column(Integer, nullable=False)
     parsed_text_path: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    source_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    license_note: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
 
 class PaperAnalysis(Base, TimestampMixin):
@@ -51,4 +54,3 @@ class EvidenceItem(Base, TimestampMixin):
     section_name: Mapped[str] = mapped_column(String(160), nullable=False, default="Unknown")
     classification: Mapped[EvidenceClassification] = mapped_column(String(40), nullable=False)
     confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.5)
-
