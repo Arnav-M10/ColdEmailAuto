@@ -1,0 +1,10 @@
+{% if duplicate_warnings %}
+  <div class="warning-list">
+    {% for warning in duplicate_warnings %}
+      <div>{{ warning.reason }}: <a href="/candidates/{{ warning.candidate_id }}">{{ warning.candidate_name }}</a></div>
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="empty-state"><h3>No obvious duplicate found</h3></div>
+{% endif %}
+

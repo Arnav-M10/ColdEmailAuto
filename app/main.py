@@ -12,6 +12,7 @@ from starlette.responses import Response
 from app.config import get_settings
 from app.db.session import check_database, initialize_database
 from app.observability.logging import configure_logging
+from app.routes.candidates import router as candidates_router
 from app.safety import assert_no_send_capability
 from app.security.headers import apply_security_headers
 from app.services.assets import build_asset_manifest
@@ -38,6 +39,9 @@ def create_app() -> FastAPI:
         StaticFiles(directory=str(settings.project_root / "app" / "static")),
         name="static",
     )
+    app.state.templates = templates
+    app.state.base_context = base_context
+    app.include_router(candidates_router)
 
     @app.middleware("http")
     async def request_observability_middleware(
@@ -99,15 +103,6 @@ def create_app() -> FastAPI:
             page_title="Settings",
         )
 
-    @app.get("/candidates", response_class=HTMLResponse)
-    def candidates_page(request: Request) -> HTMLResponse:
-        return render_page(
-            request=request,
-            template_name="candidates.html",
-            active_page="candidates",
-            page_title="Candidates",
-        )
-
     @app.get("/papers", response_class=HTMLResponse)
     def papers_page(request: Request) -> HTMLResponse:
         return render_page(
@@ -136,19 +131,21 @@ def render_page(
     active_page: str,
     page_title: str,
 ) -> HTMLResponse:
-    asset_manifest = build_asset_manifest()
-    profile = load_profile()
     return templates.TemplateResponse(
         request,
         template_name,
-        {
-            "active_page": active_page,
-            "page_title": page_title,
-            "settings": settings,
-            "asset_manifest": asset_manifest,
-            "profile": profile,
-        },
+        base_context(active_page=active_page, page_title=page_title),
     )
+
+
+def base_context(active_page: str = "", page_title: str = "") -> dict[str, object]:
+    return {
+        "active_page": active_page,
+        "page_title": page_title,
+        "settings": settings,
+        "asset_manifest": build_asset_manifest(),
+        "profile": load_profile(),
+    }
 
 
 app = create_app()

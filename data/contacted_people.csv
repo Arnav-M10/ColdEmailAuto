@@ -1,0 +1,3 @@
+name,email,institution,status,notes
+Example Contact,example.professor@example.edu,Example University,DECLINED,Sample row for import validation only.
+

@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <h2>{{ candidate.full_name }}</h2>
+        <p>{{ candidate.title or "Researcher" }}{% if candidate.institution %}, {{ candidate.institution }}{% endif %}</p>
+      </div>
+      <span class="status-pill">{{ candidate.status }}</span>
+    </div>
+
+    <dl class="detail-list">
+      <div><dt>Department</dt><dd>{{ candidate.department or "Not recorded" }}</dd></div>
+      <div><dt>Research area</dt><dd>{{ candidate.research_area or "Not recorded" }}</dd></div>
+      <div><dt>Profile</dt><dd>{% if candidate.official_profile_url %}<a href="{{ candidate.official_profile_url }}">{{ candidate.official_profile_url }}</a>{% else %}Not recorded{% endif %}</dd></div>
+      <div><dt>Notes</dt><dd>{{ candidate.notes or "None" }}</dd></div>
+    </dl>
+  </section>
+
+  <section class="panel secondary-panel">
+    <div class="panel-header"><div><h2>Official email</h2><p>Only record addresses from official sources.</p></div></div>
+    <form class="form-grid" method="post" action="/candidates/{{ candidate.id }}/emails">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <label>Email <input name="email" type="email" required></label>
+      <label>Source type <input name="source_type" value="official_university_page" required></label>
+      <label class="wide">Source URL <input name="source_url" type="url" required></label>
+      <label>Confidence
+        <select name="confidence"><option>HIGH</option><option>MEDIUM</option><option>LOW</option></select>
+      </label>
+      <label>Verification
+        <select name="verification_status"><option>VERIFIED</option><option>UNVERIFIED</option></select>
+      </label>
+      <div class="form-actions wide"><button type="submit">Record email</button></div>
+    </form>
+    {% if emails %}
+      <div class="table-wrap compact">
+        <table><thead><tr><th>Email</th><th>Source</th><th>Verification</th></tr></thead><tbody>
+          {% for email in emails %}
+            <tr><td>{{ email.email }}</td><td><a href="{{ email.source_url }}">{{ email.source_type }}</a></td><td>{{ email.verification_status }}</td></tr>
+          {% endfor %}
+        </tbody></table>
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="panel secondary-panel">
+    <div class="panel-header"><div><h2>Status</h2><p>Transitions are validated so safety gates cannot be skipped.</p></div></div>
+    <form class="inline-form" method="post" action="/candidates/{{ candidate.id }}/status">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <select name="status">
+        {% for status in statuses %}
+          <option value="{{ status }}" {% if status == candidate.status %}selected{% endif %}>{{ status }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit">Update status</button>
+    </form>
+  </section>
+
+  <section class="panel secondary-panel">
+    <div class="panel-header"><div><h2>Audit history</h2><p>Important manual actions are recorded locally.</p></div></div>
+    {% if events %}
+      <div class="event-list">
+        {% for event in events %}
+          <div><strong>{{ event.event_type }}</strong><span>{{ event.notes or "" }}</span></div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="empty-state"><h3>No history yet</h3><p>Actions will appear here.</p></div>
+    {% endif %}
+  </section>
+{% endblock %}
+

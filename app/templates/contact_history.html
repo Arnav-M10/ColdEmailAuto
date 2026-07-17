@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <h2>Contact History Import</h2>
+        <p>Preview contacted-person CSV files before adding them to the tracker.</p>
+      </div>
+    </div>
+    <form class="form-grid" method="post" action="/contact-history/preview" enctype="multipart/form-data">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <label class="wide">CSV file <input name="file" type="file" accept=".csv,text/csv" required></label>
+      <div class="form-actions wide"><button type="submit">Preview CSV</button></div>
+    </form>
+    <form class="form-grid import-form" method="post" action="/contact-history/import" enctype="multipart/form-data">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <label class="wide">CSV file to import <input name="file" type="file" accept=".csv,text/csv" required></label>
+      <div class="form-actions wide"><button type="submit">Import valid new rows</button></div>
+    </form>
+  </section>
+
+  {% if import_result %}
+    <section class="panel secondary-panel">
+      <div class="panel-header">
+        <div>
+          <h2>Import result</h2>
+          <p>{{ import_result.imported }} imported, {{ import_result.skipped }} skipped.</p>
+        </div>
+      </div>
+      {% if import_result.errors %}
+        <div class="warning-list">
+          {% for error in import_result.errors %}
+            <div>{{ error }}</div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </section>
+  {% endif %}
+
+  {% if preview_rows %}
+    <section class="panel secondary-panel">
+      <div class="panel-header"><div><h2>Preview</h2><p>Rows must be valid before import is implemented.</p></div></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Row</th><th>Name</th><th>Email</th><th>Institution</th><th>Status</th><th>Result</th></tr></thead>
+          <tbody>
+            {% for row in preview_rows %}
+              <tr>
+                <td>{{ row.row_number }}</td>
+                <td>{{ row.name }}</td>
+                <td>{{ row.email }}</td>
+                <td>{{ row.institution }}</td>
+                <td>{{ row.status }}</td>
+                <td>{% if row.valid %}<span class="asset-state ok">Valid</span>{% else %}<span class="asset-state bad">{{ row.error }}</span>{% endif %}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  {% endif %}
+{% endblock %}
