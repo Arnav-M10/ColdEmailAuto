@@ -14,7 +14,18 @@ def test_database_initializes_foundation_tables() -> None:
             "SELECT name FROM sqlite_master WHERE type='table'",
         ).scalars())
 
-    assert {"audit_events", "candidates", "jobs"}.issubset(table_names)
+    assert {
+        "audit_events",
+        "candidates",
+        "jobs",
+        "email_addresses",
+        "paper_files",
+        "paper_analyses",
+        "evidence_items",
+        "drafts",
+        "outreach_events",
+        "follow_up_tasks",
+    }.issubset(table_names)
 
 
 def test_candidate_default_status_is_discovered() -> None:
@@ -31,4 +42,3 @@ def test_candidate_default_status_is_discovered() -> None:
         stored = session.scalars(select(Candidate)).one()
 
     assert stored.status == CandidateStatus.DISCOVERED
-

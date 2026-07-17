@@ -18,3 +18,4 @@ All notable project changes will be documented here.
 - Structured request logging, redaction helpers, request IDs, and secure headers.
 - Local profile YAML, required asset validation, and ignored asset hash manifest.
 - Tracked-file secret scanning command and configuration.
+- Phase 1 manual tracker schema and candidate status transition validation.

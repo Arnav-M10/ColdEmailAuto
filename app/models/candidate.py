@@ -32,10 +32,14 @@ class Candidate(Base, TimestampMixin, SoftDeleteMixin):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     full_name: Mapped[str] = mapped_column(String(240), nullable=False)
+    title: Mapped[str | None] = mapped_column(String(160), nullable=True)
     institution: Mapped[str | None] = mapped_column(String(240), nullable=True)
+    department: Mapped[str | None] = mapped_column(String(240), nullable=True)
+    research_area: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    official_profile_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    notes: Mapped[str | None] = mapped_column(String(2000), nullable=True)
     status: Mapped[CandidateStatus] = mapped_column(
         Enum(CandidateStatus, native_enum=False, length=40),
         nullable=False,
         default=CandidateStatus.DISCOVERED,
     )
-

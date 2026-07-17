@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import get_settings
 from app.db.base import Base
-from app.models import audit, candidate, job  # noqa: F401
+from app.models import audit, candidate, draft, email_address, job, outreach, paper  # noqa: F401
 
 
 def ensure_sqlite_parent_directory(database_url: str) -> None:
@@ -42,4 +42,3 @@ def check_database(target_engine: Engine = engine) -> bool:
 def get_db() -> Generator[Session, None, None]:
     with SessionLocal() as session:
         yield session
-

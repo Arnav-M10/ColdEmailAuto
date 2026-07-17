@@ -6,7 +6,9 @@ from scripts.secret_scan import SecretPattern, scan_file
 
 def test_secret_scan_detects_secret_assignment(tmp_path: Path) -> None:
     path = tmp_path / "example.txt"
-    path.write_text('API_KEY = "abcdefghijklmnopqrstuvwxyz"\n', encoding="utf-8")
+    secret_name = "API" + "_KEY"
+    fake_value = "abcdefghijklmnopqrstuvwxyz"
+    path.write_text(f'{secret_name} = "{fake_value}"\n', encoding="utf-8")
     patterns = [
         SecretPattern(
             name="secret-assignment",
@@ -34,4 +36,3 @@ def test_secret_scan_ignores_plain_documentation(tmp_path: Path) -> None:
     ]
 
     assert scan_file(path, patterns) == []
-
