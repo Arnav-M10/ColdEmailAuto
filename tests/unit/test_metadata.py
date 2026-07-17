@@ -14,6 +14,8 @@ from app.services.metadata import (
     OpenAlexClient,
     PublicationMetadata,
     deduplicate_metadata,
+    list_candidate_publications,
+    manual_publication_metadata,
     match_candidate_author,
     parse_openalex_work,
     score_publication_for_candidate,
@@ -170,6 +172,54 @@ def test_publication_upsert_links_authorship_once(tmp_path: Path) -> None:
     assert len(publications) == 1
     assert len(authorships) == 1
     assert authorships[0].match_status == "MATCHED"
+
+
+def test_manual_scholar_publication_records_source_without_scraping(tmp_path: Path) -> None:
+    engine = create_engine_for_url(f"sqlite:///{tmp_path / 'test.db'}")
+    initialize_database(engine)
+
+    with Session(engine) as session:
+        candidate = create_candidate(
+            session,
+            full_name="Jane Doe",
+            title=None,
+            institution="Example University",
+            department=None,
+            research_area="cosmology data analysis",
+            official_profile_url=None,
+            notes=None,
+        )
+        metadata = manual_publication_metadata(
+            title="Cosmology With Public Survey Data",
+            year=2024,
+            venue="Example Journal",
+            doi="",
+            arxiv_id="2401.12345",
+            open_access_url="https://arxiv.org/abs/2401.12345",
+            pdf_url="https://arxiv.org/pdf/2401.12345",
+            authors_text="Jane Doe, Other Person",
+            scholar_url="https://scholar.google.com/citations?user=abc",
+        )
+        publication, authorship = upsert_publication_with_authorship(
+            session,
+            candidate=candidate,
+            metadata=metadata,
+        )
+        session.commit()
+        publication_id = publication.id
+        authorship_id = authorship.id
+
+    with Session(engine) as session:
+        rows = list_candidate_publications(session, candidate_id=1)
+        loaded_publication = session.get(Publication, publication_id)
+        loaded_authorship = session.get(Authorship, authorship_id)
+
+    assert loaded_publication is not None
+    assert loaded_publication.source == "manual_scholar"
+    assert "scholar.google.com" in loaded_publication.metadata_json
+    assert loaded_authorship is not None
+    assert loaded_authorship.match_status == "REVIEW_REQUIRED"
+    assert len(rows) == 1
 
 
 def create_unsaved_candidate() -> Candidate:

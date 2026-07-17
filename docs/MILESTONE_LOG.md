@@ -24,12 +24,13 @@ This log records completed implementation milestones. Detailed behavior changes 
 - Phase 2.1 - safe web retrieval foundation with SSRF blocking, redirect revalidation, robots checks, response caps, and discovery review tables.
 - Phase 2.2 - department discovery importer, five-layout extraction coverage, transparent candidate scoring, and review-before-save UI.
 - Phase 3.1 - publication metadata tables, OpenAlex/Crossref response normalization, metadata deduplication, author identity review, and paper scoring.
+- Phase 3.2 - Publication Memory UI and manual Scholar reconciliation without Scholar scraping.
 
-Phase 3.1 checks:
+Phase 3.2 checks:
 
 - `ruff check .` passed.
 - `mypy app tests scripts` passed.
-- `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/pytest -q` passed, 51 tests.
+- `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/pytest -q` passed, 53 tests.
 - `bandit -c pyproject.toml -r app scripts` passed.
 - `python -m scripts.secret_scan` passed.
 - `pip-audit --cache-dir /private/tmp/pip-audit-cache` passed with no known vulnerabilities.

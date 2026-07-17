@@ -245,3 +245,33 @@ def test_approved_draft_can_be_marked_sent_with_follow_up_suggestion(tmp_path: P
     assert response.status_code == 200
     assert "Suggested follow-up" in response.text
     assert "2026-07-29" in follow_ups.text
+
+
+def test_candidate_publication_memory_accepts_manual_scholar_source(tmp_path: Path) -> None:
+    client = build_test_client(tmp_path)
+    client.post(
+        "/candidates",
+        data={
+            "csrf": csrf_token(),
+            "full_name": "Professor Jane Doe",
+            "research_area": "cosmology data analysis",
+        },
+    )
+
+    response = client.post(
+        "/candidates/1/publications/manual",
+        data={
+            "csrf": csrf_token(),
+            "title": "Cosmology With Public Survey Data",
+            "year": "2024",
+            "venue": "Example Journal",
+            "authors": "Professor Jane Doe, Other Person",
+            "scholar_url": "https://scholar.google.com/citations?user=abc",
+        },
+        follow_redirects=True,
+    )
+    publications = client.get("/publications")
+
+    assert response.status_code == 200
+    assert "Cosmology With Public Survey Data" in response.text
+    assert "Cosmology With Public Survey Data" in publications.text

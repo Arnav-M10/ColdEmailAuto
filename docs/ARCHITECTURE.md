@@ -70,3 +70,5 @@ The Discovery page accepts one official department URL at a time. Fetched pages 
 ## Phase 3 Publication Memory
 
 Publication metadata is normalized into `publications` and linked to candidates through `authorships`. OpenAlex and Crossref clients convert API responses into a shared `PublicationMetadata` shape. Deduplication prefers DOI, arXiv ID, OpenAlex ID, and finally a normalized title fingerprint. Candidate-author identity matching records confidence, review-required states, author position, large-author warnings, and publication fit scoring without treating metadata as unquestionably correct.
+
+Manual Scholar workflows store pasted Scholar URLs only as source context. The app does not scrape Scholar. Users can add or reconcile publication metadata from a candidate page, and ambiguous author matches remain marked for review.

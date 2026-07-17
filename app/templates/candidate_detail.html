@@ -28,6 +28,46 @@
   </section>
 
   <section class="panel secondary-panel">
+    <div class="panel-header">
+      <div>
+        <h2>Publication memory</h2>
+        <p>Manual Scholar workflows are supported without scraping Scholar.</p>
+      </div>
+    </div>
+    <form class="form-grid" method="post" action="/candidates/{{ candidate.id }}/publications/manual">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <label class="wide">Title <input name="title" required></label>
+      <label>Year <input name="year" type="number" min="1900" max="2100"></label>
+      <label>Venue <input name="venue"></label>
+      <label>DOI <input name="doi"></label>
+      <label>arXiv ID <input name="arxiv_id"></label>
+      <label class="wide">Authors, comma-separated <input name="authors" required></label>
+      <label class="wide">Open-access URL <input name="open_access_url" type="url"></label>
+      <label class="wide">PDF URL <input name="pdf_url" type="url"></label>
+      <label class="wide">Scholar URL or author profile <input name="scholar_url" type="url"></label>
+      <div class="form-actions wide"><button type="submit">Add publication</button></div>
+    </form>
+    {% if publications %}
+      <div class="table-wrap compact">
+        <table>
+          <thead><tr><th>Paper</th><th>Year</th><th>Role</th><th>Score</th><th>Review</th></tr></thead>
+          <tbody>
+            {% for authorship, publication in publications %}
+              <tr>
+                <td>{{ publication.title }}</td>
+                <td>{{ publication.year or "" }}</td>
+                <td>{{ authorship.role or "Review" }}</td>
+                <td>{{ "%.0f"|format(authorship.score) }}</td>
+                <td>{{ authorship.match_status }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="panel secondary-panel">
     <div class="panel-header"><div><h2>Official email</h2><p>Only record addresses from official sources.</p></div></div>
     <form class="form-grid" method="post" action="/candidates/{{ candidate.id }}/emails">
       <input type="hidden" name="csrf" value="{{ csrf_token }}">

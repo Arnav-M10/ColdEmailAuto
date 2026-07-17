@@ -382,6 +382,55 @@ def upsert_publication_with_authorship(
     return publication, authorship
 
 
+def manual_publication_metadata(
+    *,
+    title: str,
+    year: int | None,
+    venue: str | None,
+    doi: str | None,
+    arxiv_id: str | None,
+    open_access_url: str | None,
+    pdf_url: str | None,
+    authors_text: str,
+    scholar_url: str | None,
+) -> PublicationMetadata:
+    authors = [author.strip() for author in authors_text.split(",") if author.strip()]
+    raw = {"entry_mode": "manual"}
+    if scholar_url:
+        raw["scholar_url"] = scholar_url
+    return PublicationMetadata(
+        title=title.strip(),
+        year=year,
+        venue=venue.strip() or None if venue else None,
+        doi=normalize_doi(doi),
+        arxiv_id=arxiv_id.strip().lower() or None if arxiv_id else None,
+        openalex_id=None,
+        source="manual_scholar" if scholar_url else "manual",
+        open_access_url=open_access_url.strip() or None if open_access_url else None,
+        pdf_url=pdf_url.strip() or None if pdf_url else None,
+        authors=authors,
+        author_institutions=[],
+        raw=raw,
+    )
+
+
+def list_candidate_publications(
+    session: Session,
+    candidate_id: int,
+) -> list[tuple[Authorship, Publication]]:
+    rows = session.execute(
+        select(Authorship, Publication)
+        .join(Publication, Publication.id == Authorship.publication_id)
+        .where(Authorship.candidate_id == candidate_id)
+        .order_by(Authorship.score.desc(), Publication.year.desc().nullslast()),
+    )
+    return [(authorship, publication) for authorship, publication in rows.all()]
+
+
+def list_publications(session: Session) -> list[Publication]:
+    return list(session.scalars(select(Publication).order_by(Publication.created_at.desc())))
+
+
 def authorship_role(position: int | None, author_count: int) -> str | None:
     if position is None:
         return None

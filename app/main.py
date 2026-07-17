@@ -17,6 +17,7 @@ from app.routes.discovery import router as discovery_router
 from app.routes.drafts import router as drafts_router
 from app.routes.followups import router as followups_router
 from app.routes.papers import router as papers_router
+from app.routes.publications import router as publications_router
 from app.safety import assert_no_send_capability
 from app.security.headers import apply_security_headers
 from app.services.assets import build_asset_manifest
@@ -50,6 +51,7 @@ def create_app() -> FastAPI:
     app.include_router(drafts_router)
     app.include_router(followups_router)
     app.include_router(papers_router)
+    app.include_router(publications_router)
 
     @app.middleware("http")
     async def request_observability_middleware(
