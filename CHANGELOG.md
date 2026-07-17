@@ -23,3 +23,4 @@ All notable project changes will be documented here.
 - Safe manual PDF upload, hashing, storage, and text extraction.
 - Manual paper analysis, evidence entry, conservative draft generation, and local draft approval checks.
 - Local follow-up calculator and one-follow-up manual tracking workflow.
+- Phase 2 safe web retrieval foundation with SSRF blocking, robots checks, response caps, and discovery review tables.

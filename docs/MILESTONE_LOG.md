@@ -19,6 +19,20 @@ This log records completed implementation milestones. Detailed behavior changes 
 - `8c33686` - manual paper analysis, evidence-backed draft generation, draft review page, and local approval checks.
 - `d206bca` - local follow-up calculator and one-follow-up manual tracking workflow.
 
+## Phase 2
+
+- Phase 2.1 - safe web retrieval foundation with SSRF blocking, redirect revalidation, robots checks, response caps, and discovery review tables.
+
+Phase 2.1 checks:
+
+- `ruff check .` passed.
+- `mypy app tests scripts` passed.
+- `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/pytest tests/unit tests/security -q` passed.
+- `bandit -c pyproject.toml -r app scripts` passed.
+- `python -m scripts.secret_scan` passed.
+- `alembic upgrade head` passed.
+- `pip-audit --cache-dir /private/tmp/pip-audit-cache` could not complete because `pip-audit` stalled while importing `tomli` in the local virtual environment; dependencies were not changed in this milestone.
+
 ## Latest Full Gate Set
 
 - `ruff check .`

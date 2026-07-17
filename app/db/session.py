@@ -6,7 +6,16 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import get_settings
 from app.db.base import Base
-from app.models import audit, candidate, draft, email_address, job, outreach, paper  # noqa: F401
+from app.models import (  # noqa: F401
+    audit,
+    candidate,
+    discovery,
+    draft,
+    email_address,
+    job,
+    outreach,
+    paper,
+)
 
 
 def ensure_sqlite_parent_directory(database_url: str) -> None:

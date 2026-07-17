@@ -20,6 +20,17 @@ class Settings(BaseSettings):
         validation_alias="CSRF_SECRET",
     )
     max_pdf_size_mb: int = Field(default=25, validation_alias="MAX_PDF_SIZE_MB")
+    max_html_size_mb: int = Field(default=3, validation_alias="MAX_HTML_SIZE_MB")
+    http_timeout_seconds: float = Field(default=12.0, validation_alias="HTTP_TIMEOUT_SECONDS")
+    http_max_redirects: int = Field(default=5, validation_alias="HTTP_MAX_REDIRECTS")
+    http_min_domain_delay_seconds: float = Field(
+        default=1.0,
+        validation_alias="HTTP_MIN_DOMAIN_DELAY_SECONDS",
+    )
+    http_user_agent: str = Field(
+        default="ProfessorOutreachManager/0.1 (+local human-supervised research assistant)",
+        validation_alias="HTTP_USER_AGENT",
+    )
     project_root: Path = Path(__file__).resolve().parent.parent
     assets_dir: Path = project_root / "assets"
     logs_dir: Path = project_root / "logs"

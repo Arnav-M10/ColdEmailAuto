@@ -56,3 +56,9 @@ Manual PDF uploads are stored under ignored `papers/` paths after signature, siz
 Paper analysis is stored as structured `paper_analyses` plus `evidence_items`. Draft generation uses only saved manual analysis and evidence. Draft approval is local only and remains blocked unless a verified official email exists, wording checks pass, and the required resume and portfolio PDFs are valid.
 
 Follow-up tracking is suggestion-only. Marking a candidate manually sent requires a locally approved draft and creates at most one follow-up task. The app does not generate a follow-up email, schedule sending, track opens, or send anything.
+
+## Phase 2 Safe Retrieval Foundation
+
+External retrieval starts behind `app.services.web_safety`. The service validates allowed URL categories, blocks localhost and private networks, resolves hostnames before requests, revalidates redirect targets, checks robots policy, applies per-domain delay hooks, caps response sizes, and validates expected content type. Discovery imports store review candidates in `department_imports` and `discovery_candidates` before any candidate is saved.
+
+The review schema is intentionally separate from `candidates` so department pages can be parsed, scored, and rejected without polluting the permanent outreach memory.

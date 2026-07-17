@@ -44,3 +44,13 @@ Phase 0 and Phase 1 controls focus on project hygiene, local-only defaults, secr
 - Draft approval is blocked when required attachments are missing or invalid.
 - Follow-up tracking is limited to one local suggestion and is disabled after explicit decline.
 - No Outlook, crawling, metadata API, SMTP, scheduled-send, or browser-send automation exists.
+
+## Phase 2 Controls
+
+- Remote retrieval is allowlist-oriented: official university domains and known public research APIs only.
+- URL validation rejects non-HTTPS, localhost, private IPs, link-local ranges, metadata hosts, arbitrary domains, and local-file URLs.
+- Hostnames are resolved before retrieval and blocked if any resolved address is private or local.
+- Redirect targets are revalidated before following.
+- Department import retrieval checks robots policy and has a per-domain delay hook.
+- HTML/PDF responses are capped and content-checked before downstream parsing.
+- Department import candidates remain previews until explicitly reviewed and saved.
