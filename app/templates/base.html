@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ page_title }} | {{ settings.app_name }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}">
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to content</a>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Primary">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">P</div>
+          <div>
+            <div class="brand-title">Outreach</div>
+            <div class="brand-subtitle">Paper-first tracker</div>
+          </div>
+        </div>
+        <nav class="nav-list">
+          {% set nav_items = [
+            ("dashboard", "/", "Dashboard"),
+            ("health", "/health", "Health"),
+            ("candidates", "/candidates", "Candidates"),
+            ("papers", "/papers", "Papers"),
+            ("drafts", "/drafts", "Drafts"),
+            ("settings", "/settings", "Settings")
+          ] %}
+          {% for key, href, label in nav_items %}
+            <a class="nav-link{% if active_page == key %} active{% endif %}" href="{{ href }}">
+              <span>{{ label }}</span>
+            </a>
+          {% endfor %}
+        </nav>
+        <div class="safety-card">
+          <strong>Drafts only</strong>
+          <span>No automatic sending. No Mail.Send. No SMTP.</span>
+        </div>
+      </aside>
+
+      <main class="content" id="main-content">
+        <header class="page-header">
+          <div>
+            <p class="eyebrow">Phase 0 foundation</p>
+            <h1>{{ page_title }}</h1>
+          </div>
+          <div class="status-pill" aria-label="Application safety mode">Drafts-only mode</div>
+        </header>
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </body>
+</html>
+

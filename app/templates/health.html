@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <h2>System health</h2>
+        <p>The application shell is running locally.</p>
+      </div>
+    </div>
+    <dl class="detail-list">
+      <div><dt>Status</dt><dd>OK</dd></div>
+      <div><dt>Environment</dt><dd>{{ settings.app_env }}</dd></div>
+      <div><dt>Host default</dt><dd>{{ settings.app_host }}</dd></div>
+      <div><dt>Safety mode</dt><dd>Drafts only</dd></div>
+    </dl>
+  </section>
+{% endblock %}
+

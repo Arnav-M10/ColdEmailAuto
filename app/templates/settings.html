@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <h2>Settings</h2>
+        <p>Phase 0 shows safe defaults before editable controls are introduced.</p>
+      </div>
+    </div>
+    <dl class="detail-list">
+      <div><dt>Python</dt><dd>3.12 required</dd></div>
+      <div><dt>Database</dt><dd>{{ settings.database_url }}</dd></div>
+      <div><dt>Attachments</dt><dd>Resume and portfolio will be required before approval.</dd></div>
+      <div><dt>External sources</dt><dd>Disabled in Phase 0.</dd></div>
+    </dl>
+  </section>
+{% endblock %}
+

@@ -50,9 +50,46 @@ If this repository is ever made public, do not commit personal profile data, rea
 
 ## Setup
 
-Exact copy-pastable setup commands will be added during Phase 0 after the Python project configuration and application shell are created.
+Use Python 3.12. On this Codex desktop workspace, the bundled Python 3.12 path is:
 
-Planned baseline:
+```bash
+/Users/arnav/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3
+```
+
+Create and activate a local virtual environment:
+
+```bash
+/Users/arnav/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
+```
+
+Run the local app:
+
+```bash
+source .venv/bin/activate
+uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+Open:
+
+```text
+http://127.0.0.1:8000
+```
+
+Run checks:
+
+```bash
+source .venv/bin/activate
+ruff check .
+mypy app tests
+pytest
+bandit -c pyproject.toml -r app
+pip-audit --cache-dir /private/tmp/pip-audit-cache
+```
+
+Baseline:
 
 - Python 3.12.
 - FastAPI.
@@ -81,4 +118,3 @@ For every milestone:
 ## License
 
 MIT. See `LICENSE`.
-

@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <h2>Local workspace</h2>
+        <p>Foundation status for the professor outreach workflow.</p>
+      </div>
+    </div>
+    <div class="metric-grid">
+      <div class="metric">
+        <span class="metric-label">Discovery</span>
+        <strong>Deferred</strong>
+        <p>No crawling or metadata integrations in Phase 0.</p>
+      </div>
+      <div class="metric">
+        <span class="metric-label">Drafting</span>
+        <strong>Blocked</strong>
+        <p>Requires full-paper analysis in later phases.</p>
+      </div>
+      <div class="metric">
+        <span class="metric-label">Email</span>
+        <strong>Drafts only</strong>
+        <p>Sending capability is intentionally absent.</p>
+      </div>
+    </div>
+  </section>
+{% endblock %}
+
