@@ -6,25 +6,30 @@ This project is governed by `PROJECT_SPEC.md`. Safety, truthfulness, privacy, an
 
 ## Current Status
 
-Phase 0 is in progress. The repository foundation is being created before application code is added.
+Phase 0 and Phase 1 are implemented as a local, safe manual tracker.
 
 Implemented so far:
 
-- Repository safety documentation.
+- Repository safety documentation and ADRs.
 - MIT license.
 - Git ignore rules for local secrets, databases, logs, PDFs, exports, and generated files.
-- Architecture and safety decision records.
-- Documentation skeleton for future setup and usage instructions.
+- FastAPI/Jinja desktop-style local web app.
+- SQLite database with SQLAlchemy models and Alembic migrations.
+- Local Arnav profile loading and required PDF attachment validation.
+- Candidate CRUD, official email provenance, duplicate checks, and contacted-person CSV import.
+- Manual lawful PDF upload with validation, hashing, safe storage, and text extraction.
+- Manual paper analysis with evidence records.
+- Conservative local draft generation and approval checks.
+- Follow-up calculator and one-follow-up manual tracker.
+- Structured logging, request IDs, security headers, secret scan, dependency audit, and no-send regression tests.
 
 Not implemented yet:
 
-- FastAPI application shell.
-- Database initialization.
-- Candidate tracking.
-- Paper upload or parsing.
-- Draft generation.
-- Outlook draft creation.
 - Any external integrations.
+- Live crawling, OpenAlex, Crossref, arXiv, or other metadata APIs.
+- Outlook draft creation.
+- Reply classification.
+- Background workers.
 
 ## Non-Negotiable Safety Boundary
 
@@ -85,9 +90,9 @@ Run checks:
 ```bash
 source .venv/bin/activate
 ruff check .
-mypy app tests
+mypy app tests scripts
 pytest
-bandit -c pyproject.toml -r app
+bandit -c pyproject.toml -r app scripts
 pip-audit --cache-dir /private/tmp/pip-audit-cache
 python -m scripts.secret_scan
 ```

@@ -23,7 +23,7 @@ Initial threats from `PROJECT_SPEC.md`:
 - Model hallucination.
 - Unsupported claims and overclaiming.
 
-Phase 0 controls will focus on project hygiene, local-only defaults, secret exclusion, documentation, and testable no-send policy.
+Phase 0 and Phase 1 controls focus on project hygiene, local-only defaults, secret exclusion, documentation, safe local files, auditable manual workflow, and testable no-send policy.
 
 ## Phase 0 Controls
 
@@ -33,3 +33,14 @@ Phase 0 controls will focus on project hygiene, local-only defaults, secret excl
 - Request logs use structured JSON and include request ID, method, path, status, and duration.
 - Logging redacts fields with names that look like authorization headers, tokens, API keys, secrets, or passwords.
 - Request logging records paths only, not request bodies, email bodies, paper text, tokens, or authorization headers.
+
+## Phase 1 Controls
+
+- Candidate and official email records are manually entered with provenance.
+- Contact-history CSV import validates rows and skips duplicates.
+- PDF upload rejects non-PDF signatures, malformed files, encrypted files, oversized files, and unsafe filenames.
+- Uploaded papers and extracted text are stored only in ignored local paths.
+- Draft generation requires saved full-paper analysis and evidence.
+- Draft approval is blocked when required attachments are missing or invalid.
+- Follow-up tracking is limited to one local suggestion and is disabled after explicit decline.
+- No Outlook, crawling, metadata API, SMTP, scheduled-send, or browser-send automation exists.

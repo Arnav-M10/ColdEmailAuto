@@ -1,6 +1,6 @@
 # Outlook Setup
 
-Outlook integration is not part of Phase 0.
+Outlook integration is not part of Phase 0 or Phase 1.
 
 Future Outlook integration must:
 
@@ -10,4 +10,3 @@ Future Outlook integration must:
 - Store tokens outside SQLite using OS credential storage where feasible.
 - Create drafts only after explicit user approval.
 - Never send messages.
-

@@ -1,6 +1,6 @@
 # Architecture
 
-This document will describe the local application architecture as Phase 0 implementation proceeds.
+This document describes the local application architecture as implemented through Phase 1.
 
 Initial direction:
 
@@ -46,3 +46,13 @@ The user profile lives at `data/arnav_profile.yaml`. Required first-contact atta
 - `assets/arnav_research_portfolio.pdf`
 
 The PDFs are ignored by Git. The app validates their PDF signature, parseability, page count, size, and SHA-256 hash. Hashes are written to ignored local manifest `data/local_asset_manifest.json`.
+
+## Phase 1 Manual Workflow
+
+Phase 1 is intentionally local and manual. A candidate can be entered by hand, official email addresses can be recorded with source provenance, contacted-person CSVs can be imported, and candidate status changes are validated.
+
+Manual PDF uploads are stored under ignored `papers/` paths after signature, size, parseability, encryption, and path-safety checks. Extracted text is cached locally under ignored `data/cache/` paths.
+
+Paper analysis is stored as structured `paper_analyses` plus `evidence_items`. Draft generation uses only saved manual analysis and evidence. Draft approval is local only and remains blocked unless a verified official email exists, wording checks pass, and the required resume and portfolio PDFs are valid.
+
+Follow-up tracking is suggestion-only. Marking a candidate manually sent requires a locally approved draft and creates at most one follow-up task. The app does not generate a follow-up email, schedule sending, track opens, or send anything.
