@@ -36,6 +36,7 @@ This log records completed implementation milestones. Detailed behavior changes 
 ## Phase 4
 
 - Phase 4.1 - lawful PDF retrieval foundation with arXiv planning, safe PDF download, and paper source provenance.
+- Phase 4.1a - ordered lawful PDF retrieval: approved papers now try arXiv, official university/institutional public PDFs, approved public full-text hosts, and OpenAlex open-access PDF locations in order; failed attempts mark `NO_FULL_TEXT` with DOI/source context, and duplicate same-candidate paper retrieval reuses the stored PDF record.
 - Phase 4.2 - rich local paper analysis, text-quality metadata, deterministic evidence extraction, and stricter draft approval gates.
 
 Phase 4.2 checks:

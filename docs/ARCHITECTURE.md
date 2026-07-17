@@ -81,4 +81,6 @@ Before a publication can be retrieved or analyzed, the user must approve that sp
 
 Publication PDFs are retrieved only through the safe fetcher. arXiv IDs resolve to `https://arxiv.org/pdf/...`; metadata PDF URLs are used only when present and valid. Downloaded content must pass PDF signature and parser checks before storage. Stored `paper_files` now retain `publication_id`, `source_url`, and `license_note` so every retrieved paper can be traced back to its lawful source.
 
+Retrieval planning tries known lawful PDF locations in order: arXiv IDs first, official university or institutional public PDFs next, approved public full-text hosts after that, and OpenAlex open-access PDF locations as a later fallback. Each failed attempt is recorded in the error message, and candidates are marked `NO_FULL_TEXT` when no lawful PDF can be retrieved. Duplicate retrieval of the same candidate-publication PDF returns the existing stored paper record.
+
 Phase 4 analysis records text quality metadata for parsed PDFs and expands `paper_analyses` with equations, computational methods, datasets, software, assumptions, limitations, future work, contribution areas, candidate-role notes, and overclaim risks. The local deterministic analyzer only extracts claims from parsed text and creates evidence items; missing details stay marked as unknown rather than inferred.

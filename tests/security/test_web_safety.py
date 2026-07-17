@@ -26,6 +26,16 @@ def test_url_validation_allows_university_and_public_api_hosts(
     assert openalex.category == "approved_public_api"
 
 
+def test_url_validation_allows_known_public_full_text_hosts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    allow_dns(monkeypatch)
+
+    validation = validate_url("https://iopscience.iop.org/article/10.1088/example/pdf")
+
+    assert validation.category == "approved_public_full_text_host"
+
+
 @pytest.mark.parametrize(
     "url",
     [

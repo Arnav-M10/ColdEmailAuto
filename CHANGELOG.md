@@ -29,4 +29,5 @@ All notable project changes will be documented here.
 - Publication Memory UI and manual Scholar reconciliation workflow without Scholar scraping.
 - Explicit publication selection gate before PDF retrieval or publication-linked analysis.
 - Lawful PDF retrieval foundation with arXiv URL planning, safe PDF download, and paper source provenance.
+- Ordered lawful PDF retrieval fallback with approved public full-text host allowlist and duplicate-safe paper storage.
 - Rich local paper analysis fields, text-quality metadata, deterministic evidence extraction, and stricter draft approval gates.

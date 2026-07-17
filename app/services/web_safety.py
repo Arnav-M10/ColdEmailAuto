@@ -18,6 +18,36 @@ ALLOWED_API_HOSTS = {
     "orcid.org",
     "pub.orcid.org",
 }
+ALLOWED_FULL_TEXT_HOSTS = {
+    "academic.oup.com",
+    "aasjournals.org",
+    "cds.cern.ch",
+    "escholarship.org",
+    "frontiersin.org",
+    "hal.science",
+    "indico.cern.ch",
+    "inspirehep.net",
+    "iopscience.iop.org",
+    "journals.aps.org",
+    "journals.plos.org",
+    "link.aps.org",
+    "link.springer.com",
+    "mdpi.com",
+    "nature.com",
+    "openreview.net",
+    "plos.org",
+    "pnas.org",
+    "repo.scoap3.org",
+    "royalsocietypublishing.org",
+    "science.org",
+    "www.frontiersin.org",
+    "www.mdpi.com",
+    "www.nature.com",
+    "www.pnas.org",
+    "www.science.org",
+    "www.springer.com",
+    "zenodo.org",
+}
 
 BLOCKED_HOSTNAMES = {"localhost", "localhost.localdomain"}
 BLOCKED_CONTENT_TYPES = {"text/plain"}
@@ -143,6 +173,8 @@ def validate_url(url: str, *, resolve_dns: bool = True) -> URLValidationResult:
         category = "approved_public_api"
     elif is_university_host(host):
         category = "official_university_domain"
+    elif host in ALLOWED_FULL_TEXT_HOSTS:
+        category = "approved_public_full_text_host"
     else:
         raise SafeFetchError("URL is outside the allowed retrieval categories.")
 

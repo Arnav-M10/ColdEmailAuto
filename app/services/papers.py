@@ -86,6 +86,16 @@ def store_manual_pdf(
     temp_path.write_bytes(content)
 
     sha256 = calculate_sha256(temp_path)
+    existing = session.scalars(
+        select(PaperFile).where(
+            PaperFile.sha256 == sha256,
+            PaperFile.candidate_id == candidate.id,
+            PaperFile.publication_id == publication_id,
+        ),
+    ).first()
+    if existing is not None:
+        temp_path.unlink(missing_ok=True)
+        return existing
     stored_path = temp_dir / f"manual_{sha256[:8]}.pdf"
     if not stored_path.exists():
         temp_path.replace(stored_path)

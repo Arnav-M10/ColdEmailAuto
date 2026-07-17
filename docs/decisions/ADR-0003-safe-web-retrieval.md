@@ -12,6 +12,8 @@ Phase 2 begins controlled department-page imports and later phases retrieve publ
 
 All remote retrieval must pass through a safe fetcher boundary before parsing or persistence. The boundary validates URL scheme and host category, blocks local/private network targets, resolves hostnames before requests, revalidates redirects, checks robots policy for page imports, applies per-domain delay hooks, caps response size, and validates expected content.
 
+Open-access PDF retrieval may use a small maintained allowlist of public full-text hosts in addition to official university domains and public APIs; arbitrary model- or metadata-provided PDF hosts remain blocked unless explicitly added to the allowlist.
+
 Discovery candidates from imported pages are stored as review previews, not permanent candidates. The user must explicitly save reviewed candidates.
 
 ## Consequences

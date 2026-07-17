@@ -58,7 +58,9 @@ Publication rows are ranked for manual review before any PDF retrieval. Each row
 
 ## Phase 4 Retrieval and Analysis
 
-For approved publications with an arXiv ID or valid PDF URL, use Retrieve PDF from the candidate page. Downloads go through the safe fetcher and must pass PDF validation before storage. Open a paper to create a structured local analysis; the local analyzer extracts only evidence present in parsed text and records limitations, future work, contribution areas, and overclaim risks.
+For approved publications with an arXiv ID or valid PDF URL, use Retrieve PDF from the candidate page. Retrieval tries arXiv first, then official university or institutional public PDFs, then approved public full-text hosts, then OpenAlex open-access PDF locations. Downloads go through the safe fetcher and must pass PDF validation before storage. If no lawful PDF can be retrieved, the candidate is marked `NO_FULL_TEXT` and the DOI/source remain visible for manual handling.
+
+Open a paper to create a structured local analysis; the local analyzer extracts only evidence present in parsed text and records limitations, future work, contribution areas, and overclaim risks.
 
 Later phases will document:
 
