@@ -9,6 +9,8 @@ from app.models.publication import Publication
 from app.security.csrf import validate_csrf_token
 from app.services.candidates import get_candidate
 from app.services.metadata import (
+    approve_publication_for_retrieval,
+    assert_publication_selected_for_retrieval,
     list_publications,
     manual_publication_metadata,
     retrieve_recent_publications_for_candidate,
@@ -99,6 +101,32 @@ def candidate_retrieve_live_publications(
     return RedirectResponse(f"/candidates/{candidate_id}", status_code=303)
 
 
+@router.post("/candidates/{candidate_id}/publications/{publication_id}/approve")
+def candidate_approve_publication_for_retrieval(
+    candidate_id: int,
+    publication_id: int,
+    csrf: str = Form(...),
+    notes: str = Form(""),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    validate_csrf_token(csrf)
+    if get_candidate(db, candidate_id) is None:
+        raise HTTPException(status_code=404)
+    if db.get(Publication, publication_id) is None:
+        raise HTTPException(status_code=404)
+    try:
+        approve_publication_for_retrieval(
+            db,
+            candidate_id=candidate_id,
+            publication_id=publication_id,
+            notes=notes or None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    db.commit()
+    return RedirectResponse(f"/candidates/{candidate_id}", status_code=303)
+
+
 @router.post("/candidates/{candidate_id}/publications/{publication_id}/retrieve")
 def candidate_retrieve_publication_pdf(
     candidate_id: int,
@@ -114,6 +142,11 @@ def candidate_retrieve_publication_pdf(
     if publication is None:
         raise HTTPException(status_code=404)
     try:
+        assert_publication_selected_for_retrieval(
+            db,
+            candidate_id=candidate_id,
+            publication_id=publication_id,
+        )
         retrieve_publication_pdf(db, candidate=candidate, publication=publication)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

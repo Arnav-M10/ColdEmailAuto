@@ -442,6 +442,11 @@ th {
   color: var(--warn-text);
 }
 
+.status-chip.ok {
+  background: #e7f8f5;
+  color: #0f3f3a;
+}
+
 .text-link {
   color: var(--accent-dark);
   font-weight: 750;
@@ -549,6 +554,54 @@ th {
 
 .reason-list li {
   margin: 6px 0;
+}
+
+.compact-list {
+  margin-top: 0;
+}
+
+.publication-review-table {
+  min-width: 1040px;
+}
+
+.paper-title,
+.meta-line {
+  display: block;
+}
+
+.meta-line {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.approval-form,
+.stacked-action {
+  display: grid;
+  gap: 10px;
+  min-width: 220px;
+}
+
+.approval-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 720;
+}
+
+.approval-form input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 10px;
+  background: #fff;
+  color: var(--text);
+}
+
+.approval-form input:focus {
+  outline: 3px solid rgb(15 118 110 / 18%);
+  border-color: var(--accent);
 }
 
 .secondary-button {

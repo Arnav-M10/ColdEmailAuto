@@ -1,4 +1,6 @@
-from sqlalchemy import Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from datetime import datetime
+
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin
@@ -44,3 +46,6 @@ class Authorship(Base, TimestampMixin):
     score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     connection_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     warnings_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    selected_for_retrieval: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    selected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    selection_notes: Mapped[str | None] = mapped_column(Text, nullable=True)

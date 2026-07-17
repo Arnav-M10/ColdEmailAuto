@@ -16,6 +16,7 @@ from app.services.analysis import (
 )
 from app.services.candidates import get_candidate
 from app.services.drafting import generate_manual_draft
+from app.services.metadata import assert_publication_selected_for_retrieval
 from app.services.papers import get_paper_file, list_paper_files, read_parsed_text
 
 router = APIRouter()
@@ -88,6 +89,15 @@ def paper_add_analysis(
     candidate = get_candidate(db, paper_file.candidate_id)
     if candidate is None:
         raise HTTPException(status_code=404)
+    if paper_file.publication_id is not None:
+        try:
+            assert_publication_selected_for_retrieval(
+                db,
+                candidate_id=candidate.id,
+                publication_id=paper_file.publication_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
     create_manual_analysis(
         db,
         candidate=candidate,
@@ -123,6 +133,15 @@ def paper_add_structured_analysis(
     candidate = get_candidate(db, paper_file.candidate_id)
     if candidate is None:
         raise HTTPException(status_code=404)
+    if paper_file.publication_id is not None:
+        try:
+            assert_publication_selected_for_retrieval(
+                db,
+                candidate_id=candidate.id,
+                publication_id=paper_file.publication_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
     create_structured_analysis_from_text(
         db,
         candidate=candidate,

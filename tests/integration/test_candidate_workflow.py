@@ -8,7 +8,11 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.db.session import create_engine_for_url, get_db, initialize_database
 from app.main import create_app
+from app.models.paper import PaperFile
+from app.models.publication import Authorship, Publication
 from app.security.csrf import csrf_token
+from app.services.candidates import create_candidate
+from app.services.metadata import title_fingerprint
 from app.services.web_safety import FetchResult
 
 
@@ -276,6 +280,153 @@ def test_candidate_publication_memory_accepts_manual_scholar_source(tmp_path: Pa
     assert response.status_code == 200
     assert "Cosmology With Public Survey Data" in response.text
     assert "Cosmology With Public Survey Data" in publications.text
+
+
+def test_publication_pdf_retrieval_requires_paper_approval(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    client = build_test_client(tmp_path)
+    client.post(
+        "/candidates",
+        data={
+            "csrf": csrf_token(),
+            "full_name": "Professor Jane Doe",
+            "research_area": "cosmology data analysis",
+        },
+    )
+    client.post(
+        "/candidates/1/publications/manual",
+        data={
+            "csrf": csrf_token(),
+            "title": "Cosmology With Public Survey Data",
+            "year": "2024",
+            "venue": "Example Journal",
+            "authors": "Professor Jane Doe, Other Person",
+            "arxiv_id": "2401.12345",
+        },
+    )
+
+    detail = client.get("/candidates/1")
+    assert "Approve paper" in detail.text
+    assert "Retrieve PDF" not in detail.text
+
+    blocked = client.post(
+        "/candidates/1/publications/1/retrieve",
+        data={"csrf": csrf_token()},
+        follow_redirects=False,
+    )
+    assert blocked.status_code == 400
+    assert "Approve this paper" in blocked.text
+
+    approved = client.post(
+        "/candidates/1/publications/1/approve",
+        data={"csrf": csrf_token(), "notes": "Good fit with local profile."},
+        follow_redirects=True,
+    )
+    assert approved.status_code == 200
+    assert "Selected for retrieval" in approved.text
+    assert "Retrieve PDF" in approved.text
+
+    called: list[int] = []
+
+    def fake_retrieve_publication_pdf(*args: Any, **kwargs: Any) -> None:
+        called.append(1)
+
+    monkeypatch.setattr(
+        "app.routes.publications.retrieve_publication_pdf",
+        fake_retrieve_publication_pdf,
+    )
+    retrieved = client.post(
+        "/candidates/1/publications/1/retrieve",
+        data={"csrf": csrf_token()},
+        follow_redirects=False,
+    )
+
+    assert retrieved.status_code == 303
+    assert called == [1]
+
+
+def test_publication_linked_analysis_requires_paper_approval(tmp_path: Path) -> None:
+    client, session_factory = build_test_context(tmp_path)
+    with session_factory() as session:
+        candidate = create_candidate(
+            session,
+            full_name="Professor Jane Doe",
+            title=None,
+            institution="Example University",
+            department=None,
+            research_area="cosmology data analysis",
+            official_profile_url=None,
+            notes=None,
+        )
+        publication = Publication(
+            title="Cosmology With Public Survey Data",
+            title_fingerprint=title_fingerprint("Cosmology With Public Survey Data"),
+            year=2024,
+            venue="Example Journal",
+            doi=None,
+            arxiv_id="2401.12345",
+            openalex_id=None,
+            source="manual",
+            open_access_url=None,
+            pdf_url=None,
+            author_count=2,
+            metadata_json="{}",
+        )
+        session.add(publication)
+        session.flush()
+        session.add(
+            Authorship(
+                candidate_id=candidate.id,
+                publication_id=publication.id,
+                author_position=1,
+                author_count=2,
+                role="first_author",
+                identity_confidence=0.9,
+                match_status="MATCHED",
+                score=75.0,
+                connection_summary="Cosmology data analysis matches.",
+                warnings_json="[]",
+            ),
+        )
+        session.add(
+            PaperFile(
+                candidate_id=candidate.id,
+                publication_id=publication.id,
+                original_filename="paper.pdf",
+                stored_path="papers/test/paper.pdf",
+                sha256="a" * 64,
+                size_bytes=128,
+                page_count=1,
+                parsed_text_path=None,
+                source_url="https://arxiv.org/pdf/2401.12345",
+                license_note="arXiv public PDF.",
+                text_quality_json="{}",
+            ),
+        )
+        session.commit()
+
+    blocked = client.post(
+        "/papers/1/analysis",
+        data={
+            "csrf": csrf_token(),
+            "title": "cosmology",
+            "research_question": "Question",
+            "methods": "Methods",
+            "results": "Results",
+            "connection_to_arnav": "Connection",
+            "claim": "Claim",
+            "evidence_text": "Evidence",
+            "page_number": "1",
+            "section_name": "Methods",
+            "classification": "EXPLICIT",
+            "confidence": "0.8",
+        },
+    )
+
+    assert blocked.status_code == 400
+    assert "Approve this paper" in blocked.text
 
 
 def test_discovery_homepage_requires_directory_approval(

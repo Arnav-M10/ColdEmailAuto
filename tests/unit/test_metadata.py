@@ -13,7 +13,10 @@ from app.services.metadata import (
     MetadataClientLike,
     OpenAlexClient,
     PublicationMetadata,
+    approve_publication_for_retrieval,
+    assert_publication_selected_for_retrieval,
     deduplicate_metadata,
+    list_candidate_publication_reviews,
     list_candidate_publications,
     manual_publication_metadata,
     match_candidate_author,
@@ -444,6 +447,71 @@ def test_manual_scholar_publication_records_source_without_scraping(tmp_path: Pa
     assert loaded_authorship is not None
     assert loaded_authorship.match_status == "REVIEW_REQUIRED"
     assert len(rows) == 1
+
+
+def test_publication_selection_gate_requires_user_approval(tmp_path: Path) -> None:
+    engine = create_engine_for_url(f"sqlite:///{tmp_path / 'test.db'}")
+    initialize_database(engine)
+
+    with Session(engine) as session:
+        candidate = create_candidate(
+            session,
+            full_name="Jane Doe",
+            title=None,
+            institution="Example University",
+            department=None,
+            research_area="cosmology data analysis",
+            official_profile_url=None,
+            notes=None,
+        )
+        publication, _authorship = upsert_publication_with_authorship(
+            session,
+            candidate=candidate,
+            metadata=PublicationMetadata(
+                title="Cosmology With Public Survey Data",
+                year=2024,
+                venue="Example Journal",
+                doi=None,
+                arxiv_id="2401.12345",
+                openalex_id=None,
+                source="manual",
+                open_access_url="https://arxiv.org/abs/2401.12345",
+                pdf_url=None,
+                authors=["Jane Doe", "Other Person"],
+                author_institutions=["Example University"],
+                raw={},
+            ),
+        )
+        session.commit()
+
+        try:
+            assert_publication_selected_for_retrieval(
+                session,
+                candidate_id=candidate.id,
+                publication_id=publication.id,
+            )
+        except ValueError as exc:
+            assert "Approve this paper" in str(exc)
+        else:  # pragma: no cover - defensive clarity
+            raise AssertionError("Expected unapproved publication retrieval to be blocked.")
+
+        approved = approve_publication_for_retrieval(
+            session,
+            candidate_id=candidate.id,
+            publication_id=publication.id,
+            notes="Strong fit with candidate research.",
+        )
+        reviews = list_candidate_publication_reviews(session, candidate.id)
+
+        assert approved.selected_for_retrieval is True
+        assert approved.selection_notes == "Strong fit with candidate research."
+        assert reviews[0].full_text_label == "arXiv PDF available"
+        assert reviews[0].full_text_available is True
+        assert_publication_selected_for_retrieval(
+            session,
+            candidate_id=candidate.id,
+            publication_id=publication.id,
+        )
 
 
 def create_unsaved_candidate() -> Candidate:

@@ -54,9 +54,11 @@ Open a candidate to retrieve recent publications from OpenAlex and confirm DOI m
 
 You can still add publication metadata manually, including a pasted Google Scholar URL or author profile as source context. The app does not scrape Scholar. Author identity matches can remain marked for review when affiliation evidence is weak.
 
+Publication rows are ranked for manual review before any PDF retrieval. Each row shows the title, year, author count, candidate author position, candidate role, fit score, match explanation, full-text availability, and ranking warnings. You must approve a paper before the app will retrieve a PDF or run analysis on a publication-linked PDF.
+
 ## Phase 4 Retrieval and Analysis
 
-For publications with an arXiv ID or valid PDF URL, use Retrieve PDF from the candidate page. Downloads go through the safe fetcher and must pass PDF validation before storage. Open a paper to create a structured local analysis; the local analyzer extracts only evidence present in parsed text and records limitations, future work, contribution areas, and overclaim risks.
+For approved publications with an arXiv ID or valid PDF URL, use Retrieve PDF from the candidate page. Downloads go through the safe fetcher and must pass PDF validation before storage. Open a paper to create a structured local analysis; the local analyzer extracts only evidence present in parsed text and records limitations, future work, contribution areas, and overclaim risks.
 
 Later phases will document:
 

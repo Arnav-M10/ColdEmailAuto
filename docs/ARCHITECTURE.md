@@ -75,6 +75,8 @@ Publication metadata is normalized into `publications` and linked to candidates 
 
 Manual Scholar workflows store pasted Scholar URLs only as source context. The app does not scrape Scholar. Users can add or reconcile publication metadata from a candidate page, and ambiguous author matches remain marked for review.
 
+Before a publication can be retrieved or analyzed, the user must approve that specific candidate-publication authorship row. The review surface shows authorship position, central-role signal, fit score, match explanation, full-text availability, and ranking warnings; routes enforce the same gate for PDF retrieval and publication-linked analysis.
+
 ## Phase 4 Retrieval Foundation
 
 Publication PDFs are retrieved only through the safe fetcher. arXiv IDs resolve to `https://arxiv.org/pdf/...`; metadata PDF URLs are used only when present and valid. Downloaded content must pass PDF signature and parser checks before storage. Stored `paper_files` now retain `publication_id`, `source_url`, and `license_note` so every retrieved paper can be traced back to its lawful source.

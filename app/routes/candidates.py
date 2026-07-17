@@ -23,7 +23,7 @@ from app.services.candidates import (
     soft_delete_candidate,
 )
 from app.services.followups import approved_drafts_for_candidate, list_follow_ups_for_candidate
-from app.services.metadata import list_candidate_publications
+from app.services.metadata import list_candidate_publication_reviews
 from app.services.papers import store_manual_pdf
 
 router = APIRouter()
@@ -113,7 +113,7 @@ def candidate_detail(
             "events": events,
             "approved_draft_count": len(approved_drafts_for_candidate(db, candidate_id)),
             "follow_up_tasks": list_follow_ups_for_candidate(db, candidate_id),
-            "publications": list_candidate_publications(db, candidate_id),
+            "publication_reviews": list_candidate_publication_reviews(db, candidate_id),
             "statuses": list(CandidateStatus),
             "today": date.today().isoformat(),
             "csrf_token": csrf_token(),

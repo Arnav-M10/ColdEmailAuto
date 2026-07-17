@@ -81,6 +81,15 @@ class PublicationRetrievalResult:
     messages: list[str]
 
 
+@dataclass(frozen=True)
+class CandidatePublicationReview:
+    authorship: Authorship
+    publication: Publication
+    warnings: list[str]
+    full_text_label: str
+    full_text_available: bool
+
+
 class HTTPJSONClient:
     def __init__(
         self,
@@ -585,6 +594,68 @@ def upsert_publication_with_authorship(
     return publication, authorship
 
 
+def get_authorship(
+    session: Session,
+    *,
+    candidate_id: int,
+    publication_id: int,
+) -> Authorship | None:
+    return session.scalars(
+        select(Authorship).where(
+            Authorship.candidate_id == candidate_id,
+            Authorship.publication_id == publication_id,
+        ),
+    ).first()
+
+
+def approve_publication_for_retrieval(
+    session: Session,
+    *,
+    candidate_id: int,
+    publication_id: int,
+    notes: str | None = None,
+) -> Authorship:
+    authorship = get_authorship(
+        session,
+        candidate_id=candidate_id,
+        publication_id=publication_id,
+    )
+    if authorship is None:
+        raise ValueError("Candidate is not linked to this publication.")
+    authorship.selected_for_retrieval = True
+    authorship.selected_at = datetime.now(UTC)
+    authorship.selection_notes = notes.strip() if notes else None
+    session.add(authorship)
+    return authorship
+
+
+def assert_publication_selected_for_retrieval(
+    session: Session,
+    *,
+    candidate_id: int,
+    publication_id: int,
+) -> None:
+    authorship = get_authorship(
+        session,
+        candidate_id=candidate_id,
+        publication_id=publication_id,
+    )
+    if authorship is None or not authorship.selected_for_retrieval:
+        raise ValueError("Approve this paper before PDF retrieval or analysis.")
+
+
+def full_text_label(publication: Publication) -> str:
+    if publication.pdf_url and publication.arxiv_id:
+        return "PDF URL and arXiv available"
+    if publication.pdf_url:
+        return "PDF URL available"
+    if publication.arxiv_id:
+        return "arXiv PDF available"
+    if publication.open_access_url:
+        return "Open-access landing page only"
+    return "No lawful full text recorded"
+
+
 def retrieve_recent_publications_for_candidate(
     session: Session,
     *,
@@ -697,9 +768,34 @@ def list_candidate_publications(
         select(Authorship, Publication)
         .join(Publication, Publication.id == Authorship.publication_id)
         .where(Authorship.candidate_id == candidate_id)
-        .order_by(Authorship.score.desc(), Publication.year.desc().nullslast()),
+        .order_by(
+            Authorship.selected_for_retrieval.desc(),
+            Authorship.score.desc(),
+            Publication.year.desc().nullslast(),
+        ),
     )
     return [(authorship, publication) for authorship, publication in rows.all()]
+
+
+def list_candidate_publication_reviews(
+    session: Session,
+    candidate_id: int,
+) -> list[CandidatePublicationReview]:
+    reviews: list[CandidatePublicationReview] = []
+    for authorship, publication in list_candidate_publications(session, candidate_id):
+        warnings = json.loads(authorship.warnings_json or "[]")
+        if not isinstance(warnings, list):
+            warnings = []
+        reviews.append(
+            CandidatePublicationReview(
+                authorship=authorship,
+                publication=publication,
+                warnings=[str(warning) for warning in warnings],
+                full_text_label=full_text_label(publication),
+                full_text_available=bool(publication.pdf_url or publication.arxiv_id),
+            ),
+        )
+    return reviews
 
 
 def list_publications(session: Session) -> list[Publication]:
