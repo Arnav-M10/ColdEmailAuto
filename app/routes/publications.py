@@ -11,6 +11,7 @@ from app.services.candidates import get_candidate
 from app.services.metadata import (
     list_publications,
     manual_publication_metadata,
+    retrieve_recent_publications_for_candidate,
     upsert_publication_with_authorship,
 )
 from app.services.retrieval import retrieve_publication_pdf
@@ -71,6 +72,29 @@ def candidate_add_manual_publication(
         scholar_url=scholar_url,
     )
     upsert_publication_with_authorship(db, candidate=candidate, metadata=metadata)
+    db.commit()
+    return RedirectResponse(f"/candidates/{candidate_id}", status_code=303)
+
+
+@router.post("/candidates/{candidate_id}/publications/retrieve-live")
+def candidate_retrieve_live_publications(
+    candidate_id: int,
+    csrf: str = Form(...),
+    openalex_author_id: str = Form(""),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    validate_csrf_token(csrf)
+    candidate = get_candidate(db, candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=404)
+    try:
+        retrieve_recent_publications_for_candidate(
+            db,
+            candidate=candidate,
+            confirmed_openalex_author_id=openalex_author_id or None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     db.commit()
     return RedirectResponse(f"/candidates/{candidate_id}", status_code=303)
 

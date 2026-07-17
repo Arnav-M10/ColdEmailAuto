@@ -30,6 +30,7 @@ This log records completed implementation milestones. Detailed behavior changes 
 
 - Phase 3.1 - publication metadata tables, OpenAlex/Crossref response normalization, metadata deduplication, author identity review, and paper scoring.
 - Phase 3.2 - Publication Memory UI and manual Scholar reconciliation without Scholar scraping.
+- Phase 3.3 - live OpenAlex/Crossref publication retrieval with cached API JSON, author identity confidence scoring, manual OpenAlex author-ID confirmation when uncertain, DOI confirmation through Crossref, recent-work retrieval, deduplication, and local provenance timestamps.
 
 ## Phase 4
 

@@ -31,9 +31,14 @@
     <div class="panel-header">
       <div>
         <h2>Publication memory</h2>
-        <p>Manual Scholar workflows are supported without scraping Scholar.</p>
+        <p>Retrieve recent papers from OpenAlex/Crossref or add manual Scholar context without scraping Scholar.</p>
       </div>
     </div>
+    <form class="form-grid" method="post" action="/candidates/{{ candidate.id }}/publications/retrieve-live">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <label class="wide">Confirmed OpenAlex author ID <input name="openalex_author_id" placeholder="Optional, required when identity is uncertain"></label>
+      <div class="form-actions wide"><button type="submit">Retrieve recent publications</button></div>
+    </form>
     <form class="form-grid" method="post" action="/candidates/{{ candidate.id }}/publications/manual">
       <input type="hidden" name="csrf" value="{{ csrf_token }}">
       <label class="wide">Title <input name="title" required></label>

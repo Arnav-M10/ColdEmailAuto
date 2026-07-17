@@ -17,7 +17,10 @@ from app.services.metadata import (
     list_candidate_publications,
     manual_publication_metadata,
     match_candidate_author,
+    normalize_openalex_author_id,
     parse_openalex_work,
+    retrieve_recent_publications_for_candidate,
+    score_openalex_author,
     score_publication_for_candidate,
     title_fingerprint,
     upsert_publication_with_authorship,
@@ -30,6 +33,24 @@ class FakeJSONClient(MetadataClientLike):
 
     def get_json(self, _url: str) -> dict[str, Any]:
         return self.payload
+
+
+class FakeRouterJSONClient(MetadataClientLike):
+    def __init__(self, routes: dict[str, dict[str, Any]]) -> None:
+        self.routes = routes
+        self.urls: list[str] = []
+
+    def get_json(self, url: str) -> dict[str, Any]:
+        self.urls.append(url)
+        for key, payload in self.routes.items():
+            if key in url:
+                return payload
+        raise AssertionError(f"Unexpected URL: {url}")
+
+
+class FailingJSONClient(MetadataClientLike):
+    def get_json(self, _url: str) -> dict[str, Any]:
+        raise RuntimeError("not found")
 
 
 def openalex_work() -> dict[str, Any]:
@@ -83,6 +104,96 @@ def test_openalex_and_crossref_clients_normalize_metadata() -> None:
     assert crossref_items[0].year == 2025
 
 
+def test_openalex_same_name_author_disambiguation_prefers_institution() -> None:
+    candidate = Candidate(
+        full_name="Jane Doe",
+        institution="Example University",
+        research_area="magnetic field topology",
+        status=CandidateStatus.DISCOVERED,
+    )
+    wrong = {
+        "id": "https://openalex.org/Awrong",
+        "display_name": "Jane Doe",
+        "works_count": 40,
+        "last_known_institutions": [{"display_name": "Other University"}],
+    }
+    right = {
+        "id": "https://openalex.org/Aright",
+        "display_name": "Jane Doe",
+        "works_count": 12,
+        "last_known_institutions": [{"display_name": "Example University"}],
+    }
+
+    ranked = sorted(
+        [score_openalex_author(candidate, wrong), score_openalex_author(candidate, right)],
+        key=lambda item: item.confidence,
+        reverse=True,
+    )
+
+    assert ranked[0].openalex_id == "https://openalex.org/Aright"
+    assert ranked[0].confidence >= 0.8
+    assert any("Affiliation history" in reason for reason in ranked[0].reasons)
+
+
+def test_openalex_author_id_normalization_requires_author_id() -> None:
+    assert normalize_openalex_author_id("A123") == "https://openalex.org/A123"
+    assert normalize_openalex_author_id("https://openalex.org/A123") == "https://openalex.org/A123"
+
+
+def test_crossref_missing_doi_confirmation_returns_none() -> None:
+    crossref = CrossrefClient(FailingJSONClient())
+
+    assert crossref.work_by_doi("10.48550/arxiv.2604.08648") is None
+
+
+def test_live_retrieval_can_use_manually_confirmed_openalex_author(tmp_path: Path) -> None:
+    engine = create_engine_for_url(f"sqlite:///{tmp_path / 'test.db'}")
+    initialize_database(engine)
+    openalex_client = OpenAlexClient(
+        FakeRouterJSONClient(
+            {
+                "/works?": {"results": [openalex_work()]},
+            },
+        ),
+    )
+    crossref_client = CrossrefClient(
+        FakeRouterJSONClient(
+            {
+                "/works/10.1000%2Fexample": {
+                    "message": {
+                        "title": ["Topology of Magnetic Field Structures"],
+                        "DOI": "10.1000/example",
+                        "published-online": {"date-parts": [[2025, 1, 1]]},
+                        "author": [{"given": "Jane", "family": "Doe"}],
+                    },
+                },
+            },
+        ),
+    )
+
+    with Session(engine) as session:
+        candidate = create_candidate(
+            session,
+            full_name="Jane Doe",
+            title="Assistant Professor",
+            institution="Example University",
+            department="Physics",
+            research_area="magnetic field topology",
+            official_profile_url=None,
+            notes=None,
+        )
+        result = retrieve_recent_publications_for_candidate(
+            session,
+            candidate=candidate,
+            openalex=openalex_client,
+            crossref=crossref_client,
+            confirmed_openalex_author_id="A1",
+        )
+
+    assert result.author.confidence == 1.0
+    assert result.imported_count == 1
+
+
 def test_publication_deduplication_prefers_identifier_keys() -> None:
     first = parse_openalex_work(openalex_work())
     duplicate = PublicationMetadata(
@@ -104,6 +215,74 @@ def test_publication_deduplication_prefers_identifier_keys() -> None:
     assert title_fingerprint("Topology: of magnetic-field structures!") == (
         "topology of magnetic field structures"
     )
+
+
+def test_live_publication_retrieval_confirms_doi_and_deduplicates(tmp_path: Path) -> None:
+    engine = create_engine_for_url(f"sqlite:///{tmp_path / 'test.db'}")
+    initialize_database(engine)
+    openalex_client = OpenAlexClient(
+        FakeRouterJSONClient(
+            {
+                "/authors?": {
+                    "results": [
+                        {
+                            "id": "https://openalex.org/A1",
+                            "display_name": "Jane Doe",
+                            "works_count": 8,
+                            "last_known_institutions": [
+                                {"display_name": "Example University"},
+                            ],
+                        },
+                    ],
+                },
+                "/works?": {"results": [openalex_work(), openalex_work()]},
+            },
+        ),
+    )
+    crossref_client = CrossrefClient(
+        FakeRouterJSONClient(
+            {
+                "/works/10.1000%2Fexample": {
+                    "message": {
+                        "title": ["Topology of Magnetic Field Structures"],
+                        "DOI": "10.1000/example",
+                        "container-title": ["Confirmed Journal"],
+                        "published-online": {"date-parts": [[2025, 1, 1]]},
+                        "author": [{"given": "Jane", "family": "Doe"}],
+                        "URL": "https://doi.org/10.1000/example",
+                    },
+                },
+            },
+        ),
+    )
+
+    with Session(engine) as session:
+        candidate = create_candidate(
+            session,
+            full_name="Jane Doe",
+            title="Assistant Professor",
+            institution="Example University",
+            department="Physics",
+            research_area="magnetic field topology",
+            official_profile_url=None,
+            notes=None,
+        )
+        result = retrieve_recent_publications_for_candidate(
+            session,
+            candidate=candidate,
+            openalex=openalex_client,
+            crossref=crossref_client,
+        )
+        session.commit()
+
+        publications = list(session.scalars(select(Publication)))
+        authorships = list(session.scalars(select(Authorship)))
+
+    assert result.imported_count == 1
+    assert result.skipped_count == 1
+    assert publications[0].venue == "Journal of Example Physics"
+    assert "crossref_confirmation" in publications[0].metadata_json
+    assert authorships[0].match_status == "MATCHED"
 
 
 def test_author_identity_requires_review_for_mismatch_and_large_author_lists() -> None:
@@ -172,6 +351,51 @@ def test_publication_upsert_links_authorship_once(tmp_path: Path) -> None:
     assert len(publications) == 1
     assert len(authorships) == 1
     assert authorships[0].match_status == "MATCHED"
+
+
+def test_publication_upsert_does_not_merge_unrelated_null_identifier_papers(
+    tmp_path: Path,
+) -> None:
+    engine = create_engine_for_url(f"sqlite:///{tmp_path / 'test.db'}")
+    initialize_database(engine)
+
+    with Session(engine) as session:
+        candidate = create_candidate(
+            session,
+            full_name="Jane Doe",
+            title=None,
+            institution="Example University",
+            department=None,
+            research_area="magnetic field topology",
+            official_profile_url=None,
+            notes=None,
+        )
+        for title in ["First No DOI Paper", "Second No DOI Paper"]:
+            upsert_publication_with_authorship(
+                session,
+                candidate=candidate,
+                metadata=PublicationMetadata(
+                    title=title,
+                    year=2025,
+                    venue=None,
+                    doi=None,
+                    arxiv_id=None,
+                    openalex_id=None,
+                    source="openalex",
+                    open_access_url=None,
+                    pdf_url=None,
+                    authors=["Jane Doe"],
+                    author_institutions=["Example University"],
+                    raw={},
+                ),
+            )
+        session.commit()
+        publications = list(session.scalars(select(Publication)))
+
+    assert {publication.title for publication in publications} == {
+        "First No DOI Paper",
+        "Second No DOI Paper",
+    }
 
 
 def test_manual_scholar_publication_records_source_without_scraping(tmp_path: Path) -> None:

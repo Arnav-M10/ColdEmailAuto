@@ -1,18 +1,25 @@
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime
+from hashlib import sha256
+from pathlib import Path
+from time import monotonic, sleep
 from typing import Any, Protocol
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.models.candidate import Candidate
 from app.models.publication import Authorship, Publication
+from app.services.web_safety import SafeFetchError, validate_url
 
 TITLE_WORD_RE = re.compile(r"[a-z0-9]+")
 ARXIV_RE = re.compile(r"arxiv[:/ ]+([0-9]{4}\.[0-9]{4,5}(?:v[0-9]+)?)", re.I)
 DOI_PREFIX_RE = re.compile(r"^https?://(?:dx\.)?doi\.org/", re.I)
+OPENALEX_AUTHOR_RE = re.compile(r"^(?:https://openalex\.org/)?(A[0-9]+)$", re.I)
 RECENT_YEAR_THRESHOLD = 2021
 LARGE_AUTHOR_WARNING_THRESHOLD = 25
 
@@ -47,22 +54,96 @@ class AuthorIdentityMatch:
 
 
 @dataclass(frozen=True)
+class OpenAlexAuthorCandidate:
+    openalex_id: str
+    display_name: str
+    orcid: str | None
+    institutions: list[str]
+    works_count: int
+    confidence: float
+    reasons: list[str]
+    raw: dict[str, Any]
+
+
+@dataclass(frozen=True)
 class PublicationScore:
     score: float
     connection_summary: str
     warnings: list[str]
 
 
+@dataclass(frozen=True)
+class PublicationRetrievalResult:
+    author: OpenAlexAuthorCandidate
+    imported_count: int
+    review_required_count: int
+    skipped_count: int
+    messages: list[str]
+
+
 class HTTPJSONClient:
+    def __init__(
+        self,
+        *,
+        cache_dir: Path | None = None,
+        min_delay_seconds: float | None = None,
+    ) -> None:
+        settings = get_settings()
+        self.cache_dir = cache_dir or settings.project_root / "data" / "cache" / "metadata"
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.min_delay_seconds = (
+            min_delay_seconds
+            if min_delay_seconds is not None
+            else settings.http_min_domain_delay_seconds
+        )
+        self.user_agent = settings.http_user_agent
+        self.timeout_seconds = settings.http_timeout_seconds
+        self._last_seen_by_host: dict[str, float] = {}
+
     def get_json(self, url: str) -> dict[str, Any]:
+        validation = validate_url(url)
+        cache_path = self.cache_dir / f"{sha256(url.encode('utf-8')).hexdigest()}.json"
+        if cache_path.exists():
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+            data = cached.get("data")
+            if isinstance(data, dict):
+                data.setdefault(
+                    "_retrieval",
+                    {"source_url": url, "retrieved_at": cached.get("retrieved_at")},
+                )
+                return data
+        self._wait(validation.host)
         import httpx
 
-        response = httpx.get(url, timeout=12.0)
+        response = httpx.get(
+            url,
+            timeout=self.timeout_seconds,
+            headers={"User-Agent": self.user_agent},
+        )
+        if response.status_code == 429:
+            raise SafeFetchError("Metadata API rate-limited the request.")
         response.raise_for_status()
         data = response.json()
         if not isinstance(data, dict):
             raise ValueError("Metadata API returned non-object JSON.")
+        retrieved_at = datetime.now(UTC).isoformat()
+        cache_path.write_text(
+            json.dumps({"url": url, "retrieved_at": retrieved_at, "data": data}),
+            encoding="utf-8",
+        )
+        data.setdefault("_retrieval", {"source_url": url, "retrieved_at": retrieved_at})
         return data
+
+    def _wait(self, host: str) -> None:
+        if self.min_delay_seconds <= 0:
+            return
+        now = monotonic()
+        last_seen = self._last_seen_by_host.get(host)
+        if last_seen is not None:
+            remaining = self.min_delay_seconds - (now - last_seen)
+            if remaining > 0:
+                sleep(remaining)
+        self._last_seen_by_host[host] = monotonic()
 
 
 def normalize_doi(value: str | None) -> str | None:
@@ -77,6 +158,13 @@ def extract_arxiv_id(value: str | None) -> str | None:
         return None
     match = ARXIV_RE.search(value)
     return match.group(1).lower() if match else None
+
+
+def normalize_openalex_author_id(value: str) -> str:
+    match = OPENALEX_AUTHOR_RE.match(value.strip())
+    if not match:
+        raise ValueError("Enter a valid OpenAlex author ID such as A123 or https://openalex.org/A123.")
+    return f"https://openalex.org/{match.group(1).upper()}"
 
 
 def title_fingerprint(title: str) -> str:
@@ -95,6 +183,22 @@ def deduplicate_metadata(items: list[PublicationMetadata]) -> list[PublicationMe
     return deduped
 
 
+def merge_crossref_confirmation(
+    openalex_metadata: PublicationMetadata,
+    crossref_metadata: PublicationMetadata | None,
+) -> PublicationMetadata:
+    if crossref_metadata is None:
+        return openalex_metadata
+    raw = dict(openalex_metadata.raw)
+    raw["crossref_confirmation"] = crossref_metadata.raw
+    return replace(
+        openalex_metadata,
+        doi=openalex_metadata.doi or crossref_metadata.doi,
+        venue=openalex_metadata.venue or crossref_metadata.venue,
+        raw=raw,
+    )
+
+
 class OpenAlexClient:
     base_url = "https://api.openalex.org"
 
@@ -107,9 +211,25 @@ class OpenAlexClient:
         results = data.get("results", [])
         return results if isinstance(results, list) else []
 
-    def works_for_author(self, openalex_author_id: str) -> list[PublicationMetadata]:
+    def search_author_candidates(self, candidate: Candidate) -> list[OpenAlexAuthorCandidate]:
+        return [
+            score_openalex_author(candidate, item)
+            for item in self.search_authors(candidate.full_name)
+            if isinstance(item, dict)
+        ]
+
+    def works_for_author(
+        self,
+        openalex_author_id: str,
+        *,
+        from_year: int | None = None,
+    ) -> list[PublicationMetadata]:
+        filters = [f"authorships.author.id:{openalex_author_id}"]
+        if from_year:
+            filters.append(f"from_publication_date:{from_year}-01-01")
         query = {
-            "filter": f"authorships.author.id:{openalex_author_id}",
+            "filter": ",".join(filters),
+            "sort": "publication_date:desc",
             "per-page": "25",
         }
         url = f"{self.base_url}/works?{urlencode(query)}"
@@ -117,7 +237,11 @@ class OpenAlexClient:
         results = data.get("results", [])
         if not isinstance(results, list):
             return []
-        return [parse_openalex_work(item) for item in results if isinstance(item, dict)]
+        return [
+            with_retrieval(parse_openalex_work(item), source_url=url)
+            for item in results
+            if isinstance(item, dict)
+        ]
 
 
 class CrossrefClient:
@@ -133,7 +257,86 @@ class CrossrefClient:
         items = message.get("items", []) if isinstance(message, dict) else []
         if not isinstance(items, list):
             return []
-        return [parse_crossref_work(item) for item in items if isinstance(item, dict)]
+        return [
+            with_retrieval(parse_crossref_work(item), source_url=url)
+            for item in items
+            if isinstance(item, dict)
+        ]
+
+    def work_by_doi(self, doi: str) -> PublicationMetadata | None:
+        normalized = normalize_doi(doi)
+        if not normalized:
+            return None
+        url = f"{self.base_url}/works/{quote(normalized, safe='')}"
+        try:
+            data = self.client.get_json(url)
+        except Exception:
+            return None
+        message = data.get("message")
+        if not isinstance(message, dict):
+            return None
+        return with_retrieval(parse_crossref_work(message), source_url=url)
+
+
+def with_retrieval(metadata: PublicationMetadata, *, source_url: str) -> PublicationMetadata:
+    raw = dict(metadata.raw)
+    raw["_retrieval"] = {
+        "source_url": source_url,
+        "retrieved_at": datetime.now(UTC).isoformat(),
+    }
+    return replace(metadata, raw=raw)
+
+
+def score_openalex_author(candidate: Candidate, item: dict[str, Any]) -> OpenAlexAuthorCandidate:
+    display_name = str(item.get("display_name") or "")
+    institutions = parse_openalex_author_institutions(item)
+    reasons: list[str] = []
+    confidence = 0.0
+    if display_name.strip().lower() == candidate.full_name.strip().lower():
+        confidence += 0.45
+        reasons.append("Exact author-name match.")
+    elif candidate.full_name.split()[-1].lower() in display_name.lower():
+        confidence += 0.2
+        reasons.append("Partial author-name match.")
+    if candidate.institution and any(
+        candidate.institution.lower() in institution.lower() for institution in institutions
+    ):
+        confidence += 0.35
+        reasons.append(f"Affiliation history includes {candidate.institution}.")
+    if candidate.official_profile_url and "profile" in str(item).lower():
+        confidence += 0.05
+    raw_works_count = item.get("works_count")
+    works_count = raw_works_count if isinstance(raw_works_count, int) else 0
+    if works_count:
+        confidence += 0.05
+        reasons.append(f"OpenAlex reports {works_count} works.")
+    return OpenAlexAuthorCandidate(
+        openalex_id=str(item.get("id") or ""),
+        display_name=display_name,
+        orcid=item.get("orcid") if isinstance(item.get("orcid"), str) else None,
+        institutions=institutions,
+        works_count=works_count,
+        confidence=min(confidence, 0.95),
+        reasons=reasons or ["No strong identity signal."],
+        raw=item,
+    )
+
+
+def parse_openalex_author_institutions(item: dict[str, Any]) -> list[str]:
+    institutions: list[str] = []
+    for key in ("last_known_institutions", "affiliations"):
+        values = item.get(key, [])
+        if not isinstance(values, list):
+            continue
+        for value in values:
+            if not isinstance(value, dict):
+                continue
+            institution = value.get("institution") if key == "affiliations" else value
+            if isinstance(institution, dict):
+                display_name = institution.get("display_name")
+                if isinstance(display_name, str):
+                    institutions.append(display_name)
+    return sorted(set(institutions))
 
 
 def parse_openalex_work(item: dict[str, Any]) -> PublicationMetadata:
@@ -333,15 +536,15 @@ def upsert_publication_with_authorship(
     metadata: PublicationMetadata,
 ) -> tuple[Publication, Authorship]:
     fingerprint = title_fingerprint(metadata.title)
+    match_conditions = [Publication.title_fingerprint == fingerprint]
+    if metadata.doi:
+        match_conditions.append(Publication.doi == metadata.doi)
+    if metadata.arxiv_id:
+        match_conditions.append(Publication.arxiv_id == metadata.arxiv_id)
+    if metadata.openalex_id:
+        match_conditions.append(Publication.openalex_id == metadata.openalex_id)
     publication = session.scalars(
-        select(Publication).where(
-            or_(
-                Publication.doi == metadata.doi,
-                Publication.arxiv_id == metadata.arxiv_id,
-                Publication.openalex_id == metadata.openalex_id,
-                Publication.title_fingerprint == fingerprint,
-            ),
-        ),
+        select(Publication).where(or_(*match_conditions)),
     ).first()
     if publication is None:
         publication = Publication(
@@ -380,6 +583,78 @@ def upsert_publication_with_authorship(
     authorship.connection_summary = scored.connection_summary
     authorship.warnings_json = json.dumps(scored.warnings)
     return publication, authorship
+
+
+def retrieve_recent_publications_for_candidate(
+    session: Session,
+    *,
+    candidate: Candidate,
+    openalex: OpenAlexClient | None = None,
+    crossref: CrossrefClient | None = None,
+    from_year: int = RECENT_YEAR_THRESHOLD,
+    min_author_confidence: float = 0.75,
+    confirmed_openalex_author_id: str | None = None,
+) -> PublicationRetrievalResult:
+    openalex_client = openalex or OpenAlexClient()
+    crossref_client = crossref or CrossrefClient()
+    if confirmed_openalex_author_id:
+        author = OpenAlexAuthorCandidate(
+            openalex_id=normalize_openalex_author_id(confirmed_openalex_author_id),
+            display_name=candidate.full_name,
+            orcid=None,
+            institutions=[candidate.institution] if candidate.institution else [],
+            works_count=0,
+            confidence=1.0,
+            reasons=["Manual OpenAlex author ID confirmation supplied by user."],
+            raw={"manual_confirmation": True},
+        )
+    else:
+        author_candidates = openalex_client.search_author_candidates(candidate)
+        if not author_candidates:
+            raise ValueError("No OpenAlex author candidates found.")
+        author_candidates = sorted(
+            author_candidates,
+            key=lambda item: item.confidence,
+            reverse=True,
+        )
+        author = author_candidates[0]
+        if not author.openalex_id or author.confidence < min_author_confidence:
+            options = "; ".join(
+                f"{item.display_name} ({item.confidence:.2f}, {item.openalex_id})"
+                for item in author_candidates[:3]
+            )
+            raise ValueError(f"OpenAlex author identity requires manual confirmation: {options}")
+
+    works = openalex_client.works_for_author(author.openalex_id, from_year=from_year)
+    merged: list[PublicationMetadata] = []
+    messages = [
+        f"OpenAlex author selected: {author.display_name} ({author.confidence:.2f}).",
+        *author.reasons,
+    ]
+    for metadata in works:
+        crossref_metadata = crossref_client.work_by_doi(metadata.doi) if metadata.doi else None
+        merged.append(merge_crossref_confirmation(metadata, crossref_metadata))
+    deduped = deduplicate_metadata(merged)
+    authorship_ids: set[int] = set()
+    review_required_ids: set[int] = set()
+    for metadata in deduped:
+        _publication, authorship = upsert_publication_with_authorship(
+            session,
+            candidate=candidate,
+            metadata=metadata,
+        )
+        session.flush()
+        authorship_ids.add(authorship.id)
+        if authorship.match_status == "REVIEW_REQUIRED":
+            review_required_ids.add(authorship.id)
+    skipped_count = max(0, len(works) - len(authorship_ids))
+    return PublicationRetrievalResult(
+        author=author,
+        imported_count=len(authorship_ids),
+        review_required_count=len(review_required_ids),
+        skipped_count=skipped_count,
+        messages=messages,
+    )
 
 
 def manual_publication_metadata(
