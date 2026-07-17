@@ -66,3 +66,7 @@ The review schema is intentionally separate from `candidates` so department page
 ## Phase 2 Discovery Review UI
 
 The Discovery page accepts one official department URL at a time. Fetched pages are parsed into `DiscoveryCandidate` previews with role category, research summary, active topics, remote feasibility, mentoring likelihood, research overlap, confidence, score, official email, homepage, evidence, and warnings. Candidates can be rejected or saved individually. Saving creates the permanent candidate and verified email only after duplicate checks pass.
+
+## Phase 3 Publication Memory
+
+Publication metadata is normalized into `publications` and linked to candidates through `authorships`. OpenAlex and Crossref clients convert API responses into a shared `PublicationMetadata` shape. Deduplication prefers DOI, arXiv ID, OpenAlex ID, and finally a normalized title fingerprint. Candidate-author identity matching records confidence, review-required states, author position, large-author warnings, and publication fit scoring without treating metadata as unquestionably correct.
