@@ -26,6 +26,10 @@ Use Candidates to add one researcher at a time. Record only official email addre
 
 Use History to preview a contacted-person CSV. CSV preview validates rows before import work is expanded.
 
+## Phase 1 Manual Papers
+
+Open a candidate and upload a lawful PDF manually. The app validates the PDF signature, rejects encrypted or malformed files, stores the file under `papers/`, records its SHA-256 hash, and extracts text to ignored local cache for later analysis.
+
 Later phases will document:
 
 - Profile setup.

@@ -452,6 +452,16 @@ th {
   color: var(--muted);
 }
 
+.text-preview {
+  max-height: 420px;
+  overflow: auto;
+  white-space: pre-wrap;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfd;
+  padding: 14px;
+}
+
 @media (max-width: 780px) {
   .app-shell {
     grid-template-columns: 1fr;

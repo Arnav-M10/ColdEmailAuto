@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <h2>{{ paper.original_filename }}</h2>
+        <p>{{ paper.page_count }} page{% if paper.page_count != 1 %}s{% endif %}, {{ paper.size_bytes }} bytes.</p>
+      </div>
+    </div>
+    <dl class="detail-list">
+      <div><dt>Stored path</dt><dd>{{ paper.stored_path }}</dd></div>
+      <div><dt>SHA-256</dt><dd><code>{{ paper.sha256 }}</code></dd></div>
+      <div><dt>Parsed text</dt><dd>{{ paper.parsed_text_path or "Not available" }}</dd></div>
+    </dl>
+  </section>
+
+  <section class="panel secondary-panel">
+    <div class="panel-header"><div><h2>Extracted text preview</h2><p>Used later for manual analysis and evidence mapping.</p></div></div>
+    <pre class="text-preview">{{ parsed_text or "No extractable text." }}</pre>
+  </section>
+{% endblock %}

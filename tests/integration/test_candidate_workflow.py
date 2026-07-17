@@ -2,6 +2,7 @@ from collections.abc import Generator
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from pypdf import PdfWriter
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db.session import create_engine_for_url, get_db, initialize_database
@@ -112,3 +113,28 @@ def test_contact_history_csv_import_creates_candidate(tmp_path: Path) -> None:
 
     candidates = client.get("/candidates")
     assert "Ada" in candidates.text
+
+
+def test_candidate_pdf_upload_creates_reviewable_paper(tmp_path: Path) -> None:
+    client = build_test_client(tmp_path)
+    client.post(
+        "/candidates",
+        data={"csrf": csrf_token(), "full_name": "Professor Jane Doe"},
+    )
+    source_pdf = tmp_path / "paper.pdf"
+    writer = PdfWriter()
+    writer.add_blank_page(width=72, height=72)
+    with source_pdf.open("wb") as file:
+        writer.write(file)
+
+    response = client.post(
+        "/candidates/1/papers",
+        data={"csrf": csrf_token()},
+        files={"file": ("../../paper.pdf", source_pdf.read_bytes(), "application/pdf")},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+
+    papers = client.get("/papers")
+    assert "paper.pdf" in papers.text

@@ -19,6 +19,7 @@ class Settings(BaseSettings):
         default="local-development-csrf-secret",
         validation_alias="CSRF_SECRET",
     )
+    max_pdf_size_mb: int = Field(default=25, validation_alias="MAX_PDF_SIZE_MB")
     project_root: Path = Path(__file__).resolve().parent.parent
     assets_dir: Path = project_root / "assets"
     logs_dir: Path = project_root / "logs"

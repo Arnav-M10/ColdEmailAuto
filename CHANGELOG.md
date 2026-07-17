@@ -20,3 +20,4 @@ All notable project changes will be documented here.
 - Tracked-file secret scanning command and configuration.
 - Phase 1 manual tracker schema and candidate status transition validation.
 - Manual candidate CRUD, official email provenance, duplicate checks, and contacted CSV preview.
+- Safe manual PDF upload, hashing, storage, and text extraction.

@@ -19,6 +19,15 @@
   </section>
 
   <section class="panel secondary-panel">
+    <div class="panel-header"><div><h2>Manual paper upload</h2><p>Upload only lawful public PDFs or copies you are allowed to use.</p></div></div>
+    <form class="form-grid" method="post" action="/candidates/{{ candidate.id }}/papers" enctype="multipart/form-data">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <label class="wide">PDF file <input name="file" type="file" accept="application/pdf,.pdf" required></label>
+      <div class="form-actions wide"><button type="submit">Upload PDF</button></div>
+    </form>
+  </section>
+
+  <section class="panel secondary-panel">
     <div class="panel-header"><div><h2>Official email</h2><p>Only record addresses from official sources.</p></div></div>
     <form class="form-grid" method="post" action="/candidates/{{ candidate.id }}/emails">
       <input type="hidden" name="csrf" value="{{ csrf_token }}">
@@ -70,4 +79,3 @@
     {% endif %}
   </section>
 {% endblock %}
-

@@ -21,6 +21,7 @@ from app.services.candidates import (
     preview_contacted_csv,
     soft_delete_candidate,
 )
+from app.services.papers import store_manual_pdf
 
 router = APIRouter()
 
@@ -136,6 +137,31 @@ def candidate_add_email(
         confidence=confidence,
         verification_status=verification_status,
     )
+    db.commit()
+    return RedirectResponse(f"/candidates/{candidate_id}", status_code=303)
+
+
+@router.post("/candidates/{candidate_id}/papers")
+async def candidate_upload_paper(
+    candidate_id: int,
+    csrf: str = Form(...),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    validate_csrf_token(csrf)
+    candidate = get_candidate(db, candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=404)
+    content = await file.read()
+    try:
+        store_manual_pdf(
+            db,
+            candidate=candidate,
+            original_filename=file.filename or "uploaded.pdf",
+            content=content,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     db.commit()
     return RedirectResponse(f"/candidates/{candidate_id}", status_code=303)
 
