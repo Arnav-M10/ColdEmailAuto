@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from typing import Any
 
@@ -70,10 +71,14 @@ def openalex_work() -> dict[str, Any]:
         },
         "authorships": [
             {
-                "author": {"display_name": "Jane Doe"},
+                "author": {"id": "https://openalex.org/A1", "display_name": "Jane Doe"},
+                "is_corresponding": True,
                 "institutions": [{"display_name": "Example University"}],
             },
-            {"author": {"display_name": "Arun Patel"}, "institutions": []},
+            {
+                "author": {"id": "https://openalex.org/A2", "display_name": "Arun Patel"},
+                "institutions": [],
+            },
         ],
     }
 
@@ -371,6 +376,63 @@ def test_author_identity_requires_review_for_mismatch_and_large_author_lists() -
     assert match.status == "REVIEW_REQUIRED"
     assert "Candidate name was not found in the author list." in match.warnings
     assert any("Large author list" in warning for warning in scored.warnings)
+
+
+def test_confirmed_openalex_author_id_sets_authorship_without_name_match(
+    tmp_path: Path,
+) -> None:
+    engine = create_engine_for_url(f"sqlite:///{tmp_path / 'test.db'}")
+    initialize_database(engine)
+    metadata = PublicationMetadata(
+        title="Compact Binary Discovery in Time-Domain Surveys",
+        year=2025,
+        venue="Example Astrophysics Journal",
+        doi="10.1000/confirmed-author",
+        arxiv_id="2502.12345",
+        openalex_id="https://openalex.org/WKEVIN",
+        source="openalex",
+        open_access_url="https://arxiv.org/abs/2502.12345",
+        pdf_url="https://arxiv.org/pdf/2502.12345",
+        authors=["K. Burdge", "Collaborator"],
+        author_institutions=["Massachusetts Institute of Technology"],
+        raw={},
+        author_openalex_ids=["https://openalex.org/A123456", "https://openalex.org/A999999"],
+        corresponding_author_positions={1},
+    )
+
+    with Session(engine) as session:
+        candidate = create_candidate(
+            session,
+            full_name="Kevin Burdge",
+            title="Assistant Professor",
+            institution="MIT",
+            department="Physics",
+            research_area="time-domain astrophysics compact binaries",
+            official_profile_url="https://physics.mit.edu/faculty/kevin-burdge/",
+            notes=None,
+        )
+        _publication, authorship = upsert_publication_with_authorship(
+            session,
+            candidate=candidate,
+            metadata=metadata,
+            confirmed_openalex_author_id="https://openalex.org/A123456",
+        )
+        session.commit()
+
+        stored = session.get(Authorship, authorship.id)
+        assert stored is not None
+        warnings = json.loads(stored.warnings_json)
+
+    assert stored.author_position == 1
+    assert stored.author_count == 2
+    assert stored.openalex_author_id == "https://openalex.org/A123456"
+    assert stored.confirmed_author_present is True
+    assert stored.corresponding_author is True
+    assert stored.role == "corresponding_author"
+    assert stored.match_status == "MATCHED"
+    assert stored.identity_confidence == 0.95
+    assert stored.score >= 80
+    assert "Candidate name was not found in the author list." not in warnings
 
 
 def test_publication_upsert_links_authorship_once(tmp_path: Path) -> None:

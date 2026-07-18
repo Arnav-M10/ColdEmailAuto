@@ -627,7 +627,7 @@ def test_mit_discovery_save_then_fetch_publications_for_kevin_burdge(
             openalex_calls.append(f"author:{candidate.id}:{candidate.full_name}")
             return [
                 OpenAlexAuthorCandidate(
-                    openalex_id="https://openalex.org/AKEVIN",
+                    openalex_id="https://openalex.org/A123456",
                     display_name="Kevin Burdge",
                     orcid=None,
                     institutions=["Massachusetts Institute of Technology"],
@@ -725,7 +725,7 @@ def test_mit_discovery_save_then_fetch_publications_for_kevin_burdge(
     assert "Relativistic Binary Evolution in Time-Domain Surveys" in fetched.text
     assert "Relativistic Binary Evolution in Time-Domain Surveys" in publication_hub_after.text
     assert "author:1:Kevin Burdge" in openalex_calls
-    assert "works:https://openalex.org/AKEVIN:2021" in openalex_calls
+    assert "works:https://openalex.org/A123456:2021" in openalex_calls
     assert "crossref:10.1000/burdge" in openalex_calls
 
 
@@ -836,9 +836,14 @@ def test_mit_kevin_burdge_openalex_author_confirmation_fetches_publications(
                     source="openalex",
                     open_access_url="https://arxiv.org/abs/2502.12345",
                     pdf_url="https://arxiv.org/pdf/2502.12345",
-                    authors=["Kevin Burdge", "Collaborator"],
+                    authors=["K. Burdge", "Collaborator"],
                     author_institutions=["Massachusetts Institute of Technology"],
                     raw={"_retrieval": {"source_url": "https://api.openalex.org/works"}},
+                    author_openalex_ids=[
+                        "https://openalex.org/A123456",
+                        "https://openalex.org/A999999",
+                    ],
+                    corresponding_author_positions={1},
                 ),
             ]
 
@@ -916,6 +921,9 @@ def test_mit_kevin_burdge_openalex_author_confirmation_fetches_publications(
     assert str(confirmed.url).endswith("/candidates/1/publications/select")
     assert "Select Publication" in confirmed.text
     assert "Compact Binary Discovery in Time-Domain Surveys" in confirmed.text
+    assert "Position 1" in confirmed.text
+    assert "Confirmed author: present" in confirmed.text
+    assert "Corresponding author" in confirmed.text
     assert "Compact Binary Discovery in Time-Domain Surveys" in publication_hub.text
     assert "works:https://openalex.org/A123456:2021" in openalex_calls
     assert "crossref:10.1000/kevin-confirmed" in openalex_calls
@@ -926,6 +934,14 @@ def test_mit_kevin_burdge_openalex_author_confirmation_fetches_publications(
         assert stored.openalex_author_id == "https://openalex.org/A123456"
         stored_authorship = session.scalars(select(Authorship)).one()
         assert stored_authorship.openalex_author_id == "https://openalex.org/A123456"
+        assert stored_authorship.author_position == 1
+        assert stored_authorship.author_count == 2
+        assert stored_authorship.confirmed_author_present is True
+        assert stored_authorship.corresponding_author is True
+        assert stored_authorship.role == "corresponding_author"
+        assert stored_authorship.match_status == "MATCHED"
+        assert stored_authorship.score >= 80
+        assert "Candidate name was not found" not in stored_authorship.warnings_json
 
     openalex_calls.clear()
     refetched = client.post(

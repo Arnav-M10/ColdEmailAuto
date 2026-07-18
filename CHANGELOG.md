@@ -34,4 +34,5 @@ All notable project changes will be documented here.
 - Publications page now shows saved candidates with a visible `Fetch Publications` action before imported papers exist.
 - Ambiguous OpenAlex author matches now show a ranked HTML confirmation workflow, persist the selected author ID, and retry publication retrieval after confirmation.
 - OpenAlex author confirmation now lands on the publication-selection page and skips duplicate retrieval when papers already exist for the confirmed author.
+- OpenAlex publication imports now attribute confirmed authors by OpenAlex author ID, including author position, corresponding-author status, and warning suppression when the confirmed author appears in the returned authorships.
 - Rich local paper analysis fields, text-quality metadata, deterministic evidence extraction, and stricter draft approval gates.

@@ -71,6 +71,16 @@ def _ensure_authorship_openalex_author_column(target_engine: Engine) -> None:
             connection.exec_driver_sql(
                 "ALTER TABLE authorships ADD COLUMN openalex_author_id VARCHAR(200)",
             )
+        if "confirmed_author_present" not in columns:
+            connection.exec_driver_sql(
+                "ALTER TABLE authorships "
+                "ADD COLUMN confirmed_author_present BOOLEAN DEFAULT 0 NOT NULL",
+            )
+        if "corresponding_author" not in columns:
+            connection.exec_driver_sql(
+                "ALTER TABLE authorships "
+                "ADD COLUMN corresponding_author BOOLEAN DEFAULT 0 NOT NULL",
+            )
 
 
 def check_database(target_engine: Engine = engine) -> bool:

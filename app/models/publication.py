@@ -41,6 +41,8 @@ class Authorship(Base, TimestampMixin):
     author_position: Mapped[int | None] = mapped_column(Integer, nullable=True)
     author_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     openalex_author_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    confirmed_author_present: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    corresponding_author: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     role: Mapped[str | None] = mapped_column(String(80), nullable=True)
     identity_confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     match_status: Mapped[str] = mapped_column(String(40), nullable=False, default="REVIEW_REQUIRED")

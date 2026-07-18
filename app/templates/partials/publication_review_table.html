@@ -23,11 +23,19 @@
               <span class="meta-line">{{ review.publication.source }}</span>
             </td>
             <td>
-              <span class="status-chip">{{ review.authorship.role or "Needs review" }}</span>
+              <span class="status-chip">
+                {{ (review.authorship.role|replace("_", " ")|title) if review.authorship.role else "Needs review" }}
+              </span>
               <span class="meta-line">
                 Position {{ review.authorship.author_position or "?" }}
                 of {{ review.authorship.author_count or review.publication.author_count or "?" }}
               </span>
+              <span class="meta-line">
+                Confirmed author: {{ "present" if review.authorship.confirmed_author_present else "not confirmed" }}
+              </span>
+              {% if review.authorship.corresponding_author %}
+                <span class="meta-line">Corresponding author</span>
+              {% endif %}
               <span class="meta-line">{{ review.authorship.match_status }}</span>
             </td>
             <td>

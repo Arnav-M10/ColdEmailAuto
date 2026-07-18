@@ -35,6 +35,7 @@ This log records completed implementation milestones. Detailed behavior changes 
 - Phase 3.5 - publication workflow repair: `/publications` now shows saved candidates before publications exist, exposes a clear per-candidate `Fetch Publications` action, and has an end-to-end MIT Physics regression covering directory approval, Kevin Burdge save, OpenAlex/Crossref retrieval, persistence, and publication rendering.
 - Phase 3.6 - OpenAlex author confirmation: ambiguous author matches now render a normal ranked HTML selection page instead of JSON, store the chosen OpenAlex author ID on the candidate, and retry publication retrieval immediately after confirmation.
 - Phase 3.7 - publication-selection continuation: author confirmation now continues directly into publication retrieval, records which OpenAlex author produced the imported papers, skips duplicate retrieval when papers already exist for that author, and redirects to a dedicated publication-selection page.
+- Phase 3.8 - confirmed-author attribution: OpenAlex imports now match the confirmed author ID against returned work authorships, store author position, total author count, confirmed-author presence, and corresponding-author status, and suppress name-missing warnings when the confirmed author is present by ID.
 
 ## Phase 4
 

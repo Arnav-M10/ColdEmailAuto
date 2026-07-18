@@ -68,3 +68,5 @@ def test_database_initializes_authorship_openalex_author_storage() -> None:
         }
 
     assert "openalex_author_id" in columns
+    assert "confirmed_author_present" in columns
+    assert "corresponding_author" in columns

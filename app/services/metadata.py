@@ -42,6 +42,8 @@ class PublicationMetadata:
     authors: list[str]
     author_institutions: list[str]
     raw: dict[str, Any]
+    author_openalex_ids: list[str | None] = field(default_factory=list)
+    corresponding_author_positions: set[int] = field(default_factory=set)
 
 
 @dataclass(frozen=True)
@@ -49,6 +51,8 @@ class AuthorIdentityMatch:
     confidence: float
     author_position: int | None
     author_count: int
+    confirmed_author_present: bool
+    is_corresponding: bool
     status: str
     warnings: list[str]
 
@@ -179,6 +183,15 @@ def normalize_openalex_author_id(value: str) -> str:
     if not match:
         raise ValueError("Enter a valid OpenAlex author ID such as A123 or https://openalex.org/A123.")
     return f"https://openalex.org/{match.group(1).upper()}"
+
+
+def openalex_author_ids_match(left: str | None, right: str | None) -> bool:
+    if not left or not right:
+        return False
+    try:
+        return normalize_openalex_author_id(left) == normalize_openalex_author_id(right)
+    except ValueError:
+        return False
 
 
 def normalized_words(value: str | None) -> set[str]:
@@ -522,14 +535,24 @@ def _topic_overlap_count(candidate: Candidate, topics: list[str]) -> int:
 def parse_openalex_work(item: dict[str, Any]) -> PublicationMetadata:
     authorships = item.get("authorships", [])
     authors: list[str] = []
+    author_openalex_ids: list[str | None] = []
     institutions: list[str] = []
+    corresponding_author_positions: set[int] = set()
     if isinstance(authorships, list):
-        for authorship in authorships:
+        for index, authorship in enumerate(authorships, start=1):
             if not isinstance(authorship, dict):
                 continue
             author = authorship.get("author", {})
             if isinstance(author, dict) and isinstance(author.get("display_name"), str):
                 authors.append(author["display_name"])
+                raw_author_id = author.get("id")
+                author_openalex_ids.append(
+                    raw_author_id if isinstance(raw_author_id, str) else None,
+                )
+            else:
+                author_openalex_ids.append(None)
+            if authorship.get("is_corresponding") is True:
+                corresponding_author_positions.add(index)
             for institution in authorship.get("institutions", []) or []:
                 if isinstance(institution, dict):
                     display_name = institution.get("display_name")
@@ -556,6 +579,8 @@ def parse_openalex_work(item: dict[str, Any]) -> PublicationMetadata:
         authors=authors,
         author_institutions=sorted(set(institutions)),
         raw=item,
+        author_openalex_ids=author_openalex_ids,
+        corresponding_author_positions=corresponding_author_positions,
     )
 
 
@@ -639,18 +664,35 @@ def _crossref_venue(item: dict[str, Any]) -> str | None:
 def match_candidate_author(
     candidate: Candidate,
     metadata: PublicationMetadata,
+    *,
+    confirmed_openalex_author_id: str | None = None,
 ) -> AuthorIdentityMatch:
     normalized_candidate = candidate.full_name.strip().lower()
-    author_count = len(metadata.authors)
+    author_count = max(len(metadata.authors), len(metadata.author_openalex_ids))
     warnings: list[str] = []
     position = None
-    for index, author in enumerate(metadata.authors, start=1):
-        if author.strip().lower() == normalized_candidate:
-            position = index
-            break
+    confirmed_author_present = False
+    is_corresponding = False
+    if confirmed_openalex_author_id:
+        normalized_openalex_author_id = normalize_openalex_author_id(confirmed_openalex_author_id)
+        for index, author_id in enumerate(metadata.author_openalex_ids, start=1):
+            if openalex_author_ids_match(author_id, normalized_openalex_author_id):
+                position = index
+                confirmed_author_present = True
+                is_corresponding = index in metadata.corresponding_author_positions
+                break
+    if position is None:
+        for index, author in enumerate(metadata.authors, start=1):
+            if author.strip().lower() == normalized_candidate:
+                position = index
+                break
+        is_corresponding = bool(position and position in metadata.corresponding_author_positions)
     confidence = 0.0
     status = "REVIEW_REQUIRED"
-    if position is not None:
+    if confirmed_author_present:
+        confidence = 0.95
+        status = "MATCHED"
+    elif position is not None:
         confidence = 0.7
         status = "MATCHED"
         if candidate.institution and any(
@@ -669,6 +711,8 @@ def match_candidate_author(
         confidence=confidence,
         author_position=position,
         author_count=author_count,
+        confirmed_author_present=confirmed_author_present,
+        is_corresponding=is_corresponding,
         status=status if confidence >= 0.8 else "REVIEW_REQUIRED",
         warnings=warnings,
     )
@@ -714,8 +758,10 @@ def upsert_publication_with_authorship(
     *,
     candidate: Candidate,
     metadata: PublicationMetadata,
+    confirmed_openalex_author_id: str | None = None,
 ) -> tuple[Publication, Authorship]:
     fingerprint = title_fingerprint(metadata.title)
+    metadata_author_count = max(len(metadata.authors), len(metadata.author_openalex_ids))
     match_conditions = [Publication.title_fingerprint == fingerprint]
     if metadata.doi:
         match_conditions.append(Publication.doi == metadata.doi)
@@ -738,12 +784,16 @@ def upsert_publication_with_authorship(
             source=metadata.source,
             open_access_url=metadata.open_access_url,
             pdf_url=metadata.pdf_url,
-            author_count=len(metadata.authors) or None,
+            author_count=metadata_author_count or None,
             metadata_json=json.dumps(metadata.raw),
         )
         session.add(publication)
         session.flush()
-    match = match_candidate_author(candidate, metadata)
+    match = match_candidate_author(
+        candidate,
+        metadata,
+        confirmed_openalex_author_id=confirmed_openalex_author_id,
+    )
     scored = score_publication_for_candidate(candidate, metadata, match)
     authorship = session.scalars(
         select(Authorship).where(
@@ -756,7 +806,15 @@ def upsert_publication_with_authorship(
         session.add(authorship)
     authorship.author_position = match.author_position
     authorship.author_count = match.author_count or None
-    authorship.role = authorship_role(match.author_position, match.author_count)
+    authorship.role = authorship_role(
+        match.author_position,
+        match.author_count,
+        corresponding=match.is_corresponding,
+    )
+    if confirmed_openalex_author_id:
+        authorship.openalex_author_id = normalize_openalex_author_id(confirmed_openalex_author_id)
+    authorship.confirmed_author_present = match.confirmed_author_present
+    authorship.corresponding_author = match.is_corresponding
     authorship.identity_confidence = match.confidence
     authorship.match_status = match.status
     authorship.score = scored.score
@@ -916,8 +974,8 @@ def retrieve_recent_publications_for_candidate(
             session,
             candidate=candidate,
             metadata=metadata,
+            confirmed_openalex_author_id=author.openalex_id,
         )
-        authorship.openalex_author_id = author.openalex_id
         session.flush()
         authorship_ids.add(authorship.id)
         if authorship.match_status == "REVIEW_REQUIRED":
@@ -1006,9 +1064,16 @@ def list_publications(session: Session) -> list[Publication]:
     return list(session.scalars(select(Publication).order_by(Publication.created_at.desc())))
 
 
-def authorship_role(position: int | None, author_count: int) -> str | None:
+def authorship_role(
+    position: int | None,
+    author_count: int,
+    *,
+    corresponding: bool = False,
+) -> str | None:
     if position is None:
         return None
+    if corresponding:
+        return "corresponding_author"
     if position == 1:
         return "first_author"
     if position == author_count and author_count > 1:
