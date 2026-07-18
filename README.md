@@ -115,6 +115,22 @@ The app also creates the Phase 0 SQLite tables automatically on local startup. R
 
 Logs are structured JSON and are intended for local troubleshooting. Do not paste logs into public systems without reviewing them for private data.
 
+## Railway Deployment
+
+Railway deploys this app from `pyproject.toml`. Runtime dependencies live in
+`[project].dependencies`, including `uvicorn[standard]`, so the build must install the package
+itself rather than only development tools.
+
+The checked-in `railway.json` uses Railpack and starts the app with:
+
+```bash
+python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT
+```
+
+Using `python -m uvicorn` keeps startup tied to the installed Python environment even if an
+executable shim is not on `PATH`. The FastAPI application object is `app` in `app/main.py`, so
+`app.main:app` is the correct import target.
+
 Validate required local assets and refresh their ignored hash manifest:
 
 ```bash
