@@ -12,7 +12,7 @@ from app.models.paper import EvidenceClassification, EvidenceItem, PaperAnalysis
 from app.models.publication import Authorship, Publication
 from app.models.workflow import ResearchWorkflowRun
 from app.services.ai_providers import EvidenceClaim, MockProvider, PaperAnalysisOutput
-from app.services.candidates import create_candidate
+from app.services.candidates import add_email_address, create_candidate
 from app.services.metadata import title_fingerprint
 from app.services.research_workflow import run_research_workflow, select_best_publication
 from app.services.web_safety import FetchResult
@@ -25,7 +25,7 @@ def session_for(tmp_path: Path) -> Session:
 
 
 def candidate(session: Session) -> Candidate:
-    return create_candidate(
+    candidate_record = create_candidate(
         session,
         full_name="Professor Jane Doe",
         title="Assistant Professor",
@@ -35,6 +35,16 @@ def candidate(session: Session) -> Candidate:
         official_profile_url="https://example.edu/jane",
         notes=None,
     )
+    add_email_address(
+        session,
+        candidate_id=candidate_record.id,
+        email="jane@example.edu",
+        source_url="https://example.edu/jane",
+        source_type="official_faculty_profile",
+        confidence="HIGH",
+        verification_status="VERIFIED",
+    )
+    return candidate_record
 
 
 def publication(
@@ -240,6 +250,6 @@ def test_research_workflow_blocks_ready_state_when_attachments_are_missing(
         )
 
         assert workflow.status == "FAILED"
-        assert workflow.failed_stage == "Generating email"
+        assert workflow.failed_stage == "Verifying attachments"
         assert "resume and research portfolio PDFs" in (workflow.failure_reason or "")
         assert workflow.draft_id is None

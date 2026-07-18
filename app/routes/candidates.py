@@ -180,6 +180,8 @@ def candidate_run_research_workflow(
         raise HTTPException(status_code=404)
     workflow = run_research_workflow(db, candidate=candidate)
     db.commit()
+    if workflow.draft_id is not None:
+        return RedirectResponse(f"/drafts/{workflow.draft_id}/manual-review", status_code=303)
     if workflow.paper_file_id is not None:
         return RedirectResponse(f"/papers/{workflow.paper_file_id}", status_code=303)
     if workflow.selected_publication_id is not None:

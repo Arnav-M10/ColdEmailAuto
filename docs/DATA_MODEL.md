@@ -18,6 +18,7 @@ Required future entities include:
 - AuditEvent.
 - Job.
 - ResearchWorkflowRun.
+- ResearcherProfile.
 
 Status transitions must enforce the safety requirements in `PROJECT_SPEC.md`.
 
@@ -46,6 +47,8 @@ Status transitions are validated in application services and must not bypass the
 
 ## Phase 4 Workflow Tables
 
-Phase 4 adds `research_workflow_runs` for the assisted candidate-to-draft workflow. Each run stores the candidate, selected publication, retrieved paper file, generated analysis, generated draft, current stage, failed stage, failure reason, selection score, selection reasons, rejected alternatives, and PDF retrieval result.
+Phase 4 adds `research_workflow_runs` for the assisted candidate-to-draft workflow. Each run stores the candidate, researcher profile, selected publication, retrieved paper file, generated analysis, generated draft, current stage, failed stage, failure reason, selection score, selection reasons, rejected alternatives, PDF retrieval result, summary JSON, sentence claim checks, and AI request count.
+
+Phase 4 also adds `researcher_profiles` for cached broader-research understanding. Profiles store metadata-version cache keys, themes, clusters, methods, datasets, techniques, recurring collaborators, active-project inferences, portfolio connections, papers analyzed, evidence, confidence, provider, model, and prompt version.
 
 This table is intentionally local and auditable. It preserves failures for retry and review instead of hiding them behind a transient request.

@@ -15,7 +15,7 @@ from app.models.paper import EvidenceClassification, PaperAnalysis, PaperFile
 from app.models.publication import Authorship, Publication
 from app.security.csrf import csrf_token
 from app.services.ai_providers import EvidenceClaim, MockProvider, PaperAnalysisOutput
-from app.services.candidates import create_candidate
+from app.services.candidates import add_email_address, create_candidate
 from app.services.metadata import OpenAlexAuthorCandidate, PublicationMetadata, title_fingerprint
 from app.services.web_safety import FetchResult
 
@@ -423,6 +423,15 @@ def test_run_research_workflow_redirects_to_selected_paper_detail(
                 ),
             ),
         )
+        add_email_address(
+            session,
+            candidate_id=candidate.id,
+            email="jane@example.edu",
+            source_url="https://example.edu/jane",
+            source_type="official_faculty_profile",
+            confidence="HIGH",
+            verification_status="VERIFIED",
+        )
         session.commit()
 
     settings = get_settings()
@@ -494,10 +503,14 @@ def test_run_research_workflow_redirects_to_selected_paper_detail(
     )
 
     assert response.status_code == 200
-    assert str(response.url).endswith("/papers/1")
+    assert str(response.url).endswith("/drafts/1/manual-review")
     assert "Magnetic Structures in Time-Domain Surveys" in response.text
-    assert "Why this paper" in response.text
-    assert "Review email draft" in response.text
+    assert "Manual Outlook copy review" in response.text
+    assert "Copy recipient" in response.text
+    assert "Copy subject" in response.text
+    assert "Copy email body" in response.text
+    assert "Copy complete email" in response.text
+    assert "Attach these two files manually in Outlook." in response.text
 
 
 def test_publication_linked_analysis_requires_paper_approval(tmp_path: Path) -> None:

@@ -27,6 +27,7 @@ Implemented so far:
 - Lawful PDF retrieval through the safe fetcher, including arXiv PDF planning and source provenance.
 - Provider-based AI analysis architecture with Gemini as the default provider.
 - AI-assisted research workflow from candidate to automatically selected paper, lawful PDF retrieval, provider-backed analysis, and local draft review.
+- Researcher intelligence from recent publication metadata, deterministic topic clusters, email-usefulness scoring, and a manual Outlook copy-review page.
 - Rich local paper analysis fields, text-quality metadata, deterministic evidence extraction, and stricter draft approval gates.
 - Structured logging, request IDs, security headers, secret scan, dependency audit, and no-send regression tests.
 
@@ -140,6 +141,9 @@ AI_TIMEOUT_SECONDS=30
 AI_RETRIES=2
 AI_TEMPERATURE=0.1
 AI_MAX_TOKENS=4096
+AI_DAILY_REQUEST_LIMIT=25
+AI_MAX_REQUESTS_PER_WORKFLOW=2
+AI_REQUIRE_FREE_TIER=true
 AUTO_SELECT_PAPER=true
 ```
 
@@ -152,6 +156,8 @@ If `GEMINI_API_KEY` or `AI_API_KEY` is missing, the app will show a clear setup 
 Open a candidate and use `Run Research Workflow` to continue from saved candidate/publication metadata to a selected paper. The workflow ranks publications by outreach fit, skips papers without lawful full text, retrieves the selected PDF through the safe fetcher, extracts text, analyzes the full paper through the configured AI provider, generates a local draft, and stops for review.
 
 Use `Choose a different paper` when you want a manual override. Manual publication-linked PDF retrieval still requires explicit paper approval.
+
+The final review page is designed for manual copying into school Outlook. It shows copy buttons for the recipient, subject, body, and complete email, but it does not open Outlook, access a mailbox, request mail permissions, or send email.
 
 Baseline:
 

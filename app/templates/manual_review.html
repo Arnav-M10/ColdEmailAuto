@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <h2>Manual Outlook copy review</h2>
+        <p>Copy this into school Outlook yourself. Attach the two files manually in Outlook.</p>
+      </div>
+      <span class="status-pill">{{ "Ready" if review.ready else "Blocked" }}</span>
+    </div>
+
+    <div class="review-grid">
+      <div class="review-block">
+        <span class="metric-label">Recipient</span>
+        {% if review.recipient_email %}
+          <strong id="recipientText">{{ review.recipient_email }}</strong>
+          <p><a href="{{ review.recipient_source_url }}">{{ review.recipient_source_url }}</a></p>
+        {% else %}
+          <strong>MISSING_OFFICIAL_EMAIL</strong>
+          <p>No verified official email is stored for this candidate.</p>
+        {% endif %}
+      </div>
+      <div class="review-block">
+        <span class="metric-label">Word count</span>
+        <strong>{{ draft.word_count }}</strong>
+        <p>Target: 105-145 excluding signoff.</p>
+      </div>
+      <div class="review-block">
+        <span class="metric-label">Selected paper</span>
+        <strong>{% if review.publication %}{{ review.publication.title }}{% else %}Not recorded{% endif %}</strong>
+        <p>{% if review.publication %}{{ review.publication.year or "Year unknown" }}{% endif %}</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel secondary-panel">
+    <div class="panel-header">
+      <div><h2>Email</h2><p>Subject and body are copy-ready, but still editable locally.</p></div>
+    </div>
+    <form method="post" action="/drafts/{{ draft.id }}/edit" class="form-grid">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <label class="wide">Subject <input id="subjectText" name="subject" value="{{ draft.subject }}"></label>
+      <label class="wide">Body <textarea id="bodyText" name="body_text" rows="14">{{ draft.body_text }}</textarea></label>
+      <div class="form-actions wide split-actions">
+        <button type="button" data-copy-target="recipientText">Copy recipient</button>
+        <button type="button" data-copy-target="subjectText">Copy subject</button>
+        <button type="button" data-copy-target="bodyText">Copy email body</button>
+        <button type="button" id="copyComplete">Copy complete email</button>
+        <button type="submit" class="secondary-button">Edit subject/body</button>
+      </div>
+    </form>
+    <form method="post" action="/drafts/{{ draft.id }}/regenerate" class="inline-form review-regenerate">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <button name="variant" value="simpler" type="submit">Regenerate simpler</button>
+      <button name="variant" value="shorter" type="submit">Regenerate shorter</button>
+      <button name="variant" value="more_personal" type="submit">Regenerate more personal</button>
+      <button name="variant" value="less_technical" type="submit">Regenerate less technical</button>
+      <button name="variant" value="another_detail" type="submit">Use another supported detail</button>
+    </form>
+  </section>
+
+  <section class="panel secondary-panel">
+    <div class="panel-header"><div><h2>Summary for you</h2><p>Readable context before copying the email.</p></div></div>
+    {% if review.summary %}
+      <dl class="detail-list">
+        <div><dt>Paper</dt><dd>{{ review.summary.what_the_paper_is_about }}</dd></div>
+        <div><dt>What they did</dt><dd>{{ review.summary.what_the_researcher_did }}</dd></div>
+        <div><dt>What they found</dt><dd>{{ review.summary.what_they_found }}</dd></div>
+        <div><dt>Connection</dt><dd>{{ review.summary.connection_to_arnav }}</dd></div>
+        <div><dt>Possible help</dt><dd>{{ review.summary.realistic_help }}</dd></div>
+        <div><dt>Avoid claiming</dt><dd>{{ review.summary.avoid_claiming }}</dd></div>
+      </dl>
+    {% else %}
+      <div class="empty-state"><h3>No summary yet</h3><p>Run paper analysis first.</p></div>
+    {% endif %}
+  </section>
+
+  <section class="panel secondary-panel">
+    <div class="panel-header"><div><h2>Evidence map</h2><p>Only supported paper details should appear in the email.</p></div></div>
+    {% if review.evidence %}
+      <div class="table-wrap compact">
+        <table>
+          <thead><tr><th>Claim</th><th>Page</th><th>Section</th><th>Evidence</th><th>Class</th></tr></thead>
+          <tbody>
+            {% for item in review.evidence %}
+              <tr>
+                <td>{{ item.claim }}</td>
+                <td>{{ item.page_number }}</td>
+                <td>{{ item.section_name }}</td>
+                <td>{{ item.evidence_text }}</td>
+                <td>{{ item.classification }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="panel secondary-panel">
+    <div class="panel-header"><div><h2>Readiness</h2><p>Blocked items must be fixed before this draft is ready.</p></div></div>
+    {% if review.approval_errors %}
+      <div class="warning-list">
+        {% for error in review.approval_errors %}
+          <div>{{ error }}</div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="empty-state"><h3>Ready for manual copying</h3><p>No mailbox access exists. No send capability exists.</p></div>
+    {% endif %}
+
+    <h3>Sentence checks</h3>
+    <div class="table-wrap compact">
+      <table>
+        <thead><tr><th>Sentence</th><th>Classification</th><th>Reason</th></tr></thead>
+        <tbody>
+          {% for check in review.sentence_checks %}
+            <tr>
+              <td>{{ check.sentence }}</td>
+              <td>{{ check.classification }}</td>
+              <td>{{ check.reason }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel secondary-panel">
+    <div class="panel-header"><div><h2>Attachments</h2><p>Attach these two files manually in Outlook.</p></div></div>
+    <div class="asset-list">
+      {% for asset in review.attachment_statuses %}
+        <div class="asset-row">
+          <div>
+            <strong>{{ asset.label }}</strong>
+            <span>{{ asset.relative_path }}</span>
+            <span>{{ asset.size_bytes or 0 }} bytes{% if asset.sha256 %}; SHA-256 {{ asset.sha256 }}{% endif %}</span>
+          </div>
+          <span class="asset-state {% if asset.valid %}ok{% else %}bad{% endif %}">
+            {{ "Valid PDF" if asset.valid else asset.error or "Missing" }}
+          </span>
+        </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="panel secondary-panel">
+    <div class="split-actions">
+      {% if review.workflow and review.workflow.selected_publication_id %}
+        <a class="button-link secondary-button" href="/candidates/{{ draft.candidate_id }}/publications/select">Choose another paper</a>
+      {% endif %}
+      <a class="button-link" href="/drafts/{{ draft.id }}">Local approval page</a>
+    </div>
+  </section>
+
+  <script src="{{ url_for('static', path='/manual_review.js') }}"></script>
+{% endblock %}

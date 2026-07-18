@@ -7,27 +7,43 @@ from sqlalchemy.orm import Session
 
 from app.models.candidate import Candidate, CandidateStatus
 from app.models.draft import Draft
+from app.models.intelligence import ResearcherProfile
 from app.models.paper import EvidenceClassification, EvidenceItem, PaperAnalysis, PaperFile
 from app.models.publication import Authorship, Publication
 from app.models.workflow import ResearchWorkflowRun
 from app.services.ai_analysis import arnav_profile_summary, create_ai_analysis_from_text
 from app.services.ai_providers import AIProvider, AIProviderError, get_ai_provider
+from app.services.ai_usage import (
+    AIRequestLimitError,
+    assert_ai_request_allowed,
+    record_ai_request,
+)
 from app.services.assets import required_attachments_ready
 from app.services.drafting import generate_manual_draft
+from app.services.email_discovery import ensure_verified_official_email
 from app.services.metadata import (
     RECENT_YEAR_THRESHOLD,
     approve_publication_for_retrieval,
     list_candidate_publications,
     retrieve_recent_publications_for_candidate,
 )
+from app.services.research_intelligence import (
+    EmailUsefulness,
+    build_or_reuse_researcher_profile,
+    email_usefulness_for_publication,
+    latest_researcher_profile,
+    profile_view,
+)
 from app.services.retrieval import (
     PDFFetcherLike,
     plan_publication_pdf_retrieval,
     retrieve_publication_pdf,
 )
+from app.services.review import manual_review_context
 
 WORKFLOW_STAGES = [
     "Finding publications",
+    "Understanding researcher",
     "Ranking papers",
     "Selecting paper",
     "Retrieving PDF",
@@ -35,6 +51,8 @@ WORKFLOW_STAGES = [
     "Analyzing paper",
     "Generating summary",
     "Generating email",
+    "Verifying official email",
+    "Verifying attachments",
     "Ready for review",
 ]
 ANALYSIS_PROMPT_VERSION = "paper-analysis-v1"
@@ -46,6 +64,7 @@ class SelectionResult:
     publication: Publication | None
     reasons: list[str]
     rejected: list[dict[str, object]]
+    score: float = 0.0
     metadata_only: Publication | None = None
 
 
@@ -69,6 +88,10 @@ def run_research_workflow(
     session.flush()
     try:
         ensure_publications(session, candidate=candidate, workflow=workflow)
+        set_stage(workflow, "Understanding researcher")
+        profile = build_or_reuse_researcher_profile(session, candidate=candidate)
+        workflow.researcher_profile_id = profile.id
+
         set_stage(workflow, "Ranking papers")
         selection = select_best_publication(session, candidate=candidate)
         workflow.rejected_alternatives_json = json.dumps(selection.rejected)
@@ -86,7 +109,7 @@ def run_research_workflow(
 
         set_stage(workflow, "Selecting paper")
         workflow.selected_publication_id = selection.publication.id
-        workflow.selection_score = selection.authorship.score
+        workflow.selection_score = selection.score
         workflow.selected_at = datetime.now(UTC)
         approve_publication_for_retrieval(
             session,
@@ -116,6 +139,7 @@ def run_research_workflow(
             paper_file=paper_file,
             publication=selection.publication,
             provider=provider,
+            workflow=workflow,
         )
         workflow.analysis_id = analysis.id
         session.flush()
@@ -127,14 +151,36 @@ def run_research_workflow(
                 "Generating summary",
                 "No explicit evidence was available for paper-specific drafting.",
             )
+        workflow.summary_json = json.dumps(
+            {
+                "what_the_paper_is_about": analysis.research_question,
+                "what_the_researcher_did": analysis.methods,
+                "what_they_found": analysis.results,
+                "connection_to_arnav": analysis.connection_to_arnav,
+                "realistic_help": "coding, data analysis, numerical checks, or visualization",
+                "avoid_claiming": (
+                    analysis.overclaim_risks or "Do not claim independent verification."
+                ),
+                "best_supported_detail": evidence[0].claim,
+            },
+        )
 
         set_stage(workflow, "Generating email")
+        set_stage(workflow, "Verifying official email")
+        if ensure_verified_official_email(session, candidate=candidate) is None:
+            candidate.status = CandidateStatus.NO_VERIFIED_EMAIL
+            raise WorkflowStageError(
+                "Verifying official email",
+                "MISSING_OFFICIAL_EMAIL: a verified official email is required before review.",
+            )
+        set_stage(workflow, "Verifying attachments")
         if not required_attachments_ready():
             raise WorkflowStageError(
-                "Generating email",
+                "Verifying attachments",
                 "Required resume and research portfolio PDFs must be present and valid "
                 "before a draft can be marked ready for review.",
             )
+        set_stage(workflow, "Generating email")
         draft = get_or_create_draft(
             session,
             candidate=candidate,
@@ -143,12 +189,16 @@ def run_research_workflow(
         )
         session.flush()
         workflow.draft_id = draft.id
+        review = manual_review_context(session, draft=draft)
+        workflow.claim_check_json = json.dumps(review.sentence_checks)
+        if review.approval_errors:
+            raise WorkflowStageError("Generating email", "; ".join(review.approval_errors))
         workflow.current_stage = "Ready for review"
         workflow.status = "READY_FOR_REVIEW"
         candidate.status = CandidateStatus.DRAFT_READY
     except WorkflowStageError as exc:
         fail_workflow(workflow, exc.stage, exc.reason)
-    except (AIProviderError, ValueError) as exc:
+    except (AIProviderError, AIRequestLimitError, ValueError) as exc:
         fail_workflow(workflow, workflow.current_stage, str(exc))
     return workflow
 
@@ -174,23 +224,51 @@ def select_best_publication(session: Session, *, candidate: Candidate) -> Select
     rows = list_candidate_publications(session, candidate.id, sort="best")
     rejected: list[dict[str, object]] = []
     metadata_only: Publication | None = rows[0][1] if rows else None
+    profile = latest_researcher_profile(session, candidate.id)
+    scored_rows = []
     for authorship, publication in rows:
+        usefulness = email_usefulness_for_publication(
+            publication=publication,
+            authorship=authorship,
+            profile=profile,
+        )
+        scored_rows.append(
+            (authorship.score + usefulness.score, authorship, publication, usefulness),
+        )
+    selected: SelectionResult | None = None
+    for score, authorship, publication, usefulness in sorted(
+        scored_rows,
+        key=lambda item: item[0],
+        reverse=True,
+    ):
         reasons = suitability_rejections(authorship, publication)
+        reasons.extend(usefulness.rejections)
         if reasons:
             rejected.append(
                 {
                     "publication_id": publication.id,
                     "title": publication.title,
-                    "score": authorship.score,
+                    "score": score,
                     "reasons": reasons,
                 },
             )
             continue
+        if selected is None:
+            selected = SelectionResult(
+                authorship=authorship,
+                publication=publication,
+                reasons=selection_reasons(authorship, publication, usefulness),
+                rejected=rejected,
+                score=score,
+                metadata_only=metadata_only,
+            )
+    if selected is not None:
         return SelectionResult(
-            authorship=authorship,
-            publication=publication,
-            reasons=selection_reasons(authorship, publication),
+            authorship=selected.authorship,
+            publication=selected.publication,
+            reasons=selected.reasons,
             rejected=rejected,
+            score=selected.score,
             metadata_only=metadata_only,
         )
     return SelectionResult(
@@ -198,6 +276,7 @@ def select_best_publication(session: Session, *, candidate: Candidate) -> Select
         publication=None,
         reasons=[],
         rejected=rejected,
+        score=0.0,
         metadata_only=metadata_only,
     )
 
@@ -238,11 +317,17 @@ def disallowed_publication_type(publication: Publication) -> bool:
     return any(term in text for term in blocked)
 
 
-def selection_reasons(authorship: Authorship, publication: Publication) -> list[str]:
+def selection_reasons(
+    authorship: Authorship,
+    publication: Publication,
+    usefulness: EmailUsefulness,
+) -> list[str]:
     reasons = _score_reasons(authorship)
     reasons.insert(0, f"Highest suitable outreach score: {authorship.score:.0f}.")
     if publication.pdf_url or publication.arxiv_id or publication.open_access_url:
         reasons.append("Lawful full text source was available.")
+    reasons.append(f"Email usefulness score: {usefulness.score:.0f}.")
+    reasons.extend(usefulness.reasons)
     return reasons
 
 
@@ -283,6 +368,7 @@ def get_or_create_analysis(
     paper_file: PaperFile,
     publication: Publication,
     provider: AIProvider | None,
+    workflow: ResearchWorkflowRun,
 ) -> PaperAnalysis:
     selected_provider = provider or get_ai_provider()
     provider_key = f"{selected_provider.name}:{selected_provider.model}:{ANALYSIS_PROMPT_VERSION}"
@@ -294,6 +380,10 @@ def get_or_create_analysis(
     ).first()
     if cached is not None:
         return cached
+    if selected_provider.name != "mock":
+        assert_ai_request_allowed(workflow_id=workflow.id)
+        record_ai_request(workflow_id=workflow.id)
+        workflow.ai_request_count += 1
     analysis = create_ai_analysis_from_text(
         session,
         candidate=candidate,
@@ -357,11 +447,20 @@ def workflow_review_context(
 ) -> dict[str, object]:
     if workflow is None:
         return {}
+    profile = (
+        session.get(ResearcherProfile, workflow.researcher_profile_id)
+        if workflow.researcher_profile_id
+        else latest_researcher_profile(session, workflow.candidate_id)
+    )
     return {
         "workflow": workflow,
         "workflow_selection_reasons": _json_list(workflow.selection_reasons_json),
         "workflow_rejected_alternatives": _json_list(workflow.rejected_alternatives_json),
         "workflow_retrieval_result": _json_object(workflow.retrieval_result_json),
+        "workflow_summary": _json_object(workflow.summary_json),
+        "workflow_claim_checks": _json_list(workflow.claim_check_json),
+        "researcher_profile": profile,
+        "researcher_profile_view": profile_view(profile),
         "attachments_ready": required_attachments_ready(),
     }
 

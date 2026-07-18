@@ -12,6 +12,7 @@ from app.models import (  # noqa: F401
     discovery,
     draft,
     email_address,
+    intelligence,
     job,
     outreach,
     paper,
@@ -45,6 +46,7 @@ def initialize_database(target_engine: Engine = engine) -> None:
     _ensure_candidate_openalex_author_column(target_engine)
     _ensure_publication_ranking_columns(target_engine)
     _ensure_authorship_openalex_author_column(target_engine)
+    _ensure_research_workflow_columns(target_engine)
 
 
 def _ensure_candidate_openalex_author_column(target_engine: Engine) -> None:
@@ -104,6 +106,45 @@ def _ensure_authorship_openalex_author_column(target_engine: Engine) -> None:
         if "score_details_json" not in columns:
             connection.exec_driver_sql(
                 "ALTER TABLE authorships ADD COLUMN score_details_json TEXT DEFAULT '{}' NOT NULL",
+            )
+
+
+def _ensure_research_workflow_columns(target_engine: Engine) -> None:
+    if target_engine.dialect.name != "sqlite":
+        return
+    with target_engine.begin() as connection:
+        tables = {
+            row[0]
+            for row in connection.exec_driver_sql(
+                "SELECT name FROM sqlite_master WHERE type='table'",
+            ).fetchall()
+        }
+        if "research_workflow_runs" not in tables:
+            return
+        columns = {
+            row[1]
+            for row in connection.exec_driver_sql(
+                "PRAGMA table_info(research_workflow_runs)",
+            ).fetchall()
+        }
+        if "researcher_profile_id" not in columns:
+            connection.exec_driver_sql(
+                "ALTER TABLE research_workflow_runs ADD COLUMN researcher_profile_id INTEGER",
+            )
+        if "summary_json" not in columns:
+            connection.exec_driver_sql(
+                "ALTER TABLE research_workflow_runs "
+                "ADD COLUMN summary_json TEXT DEFAULT '{}' NOT NULL",
+            )
+        if "claim_check_json" not in columns:
+            connection.exec_driver_sql(
+                "ALTER TABLE research_workflow_runs "
+                "ADD COLUMN claim_check_json TEXT DEFAULT '[]' NOT NULL",
+            )
+        if "ai_request_count" not in columns:
+            connection.exec_driver_sql(
+                "ALTER TABLE research_workflow_runs "
+                "ADD COLUMN ai_request_count INTEGER DEFAULT 0 NOT NULL",
             )
 
 

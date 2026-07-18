@@ -74,7 +74,7 @@
       <div class="split-actions workflow-actions">
         <a class="button-link secondary-button" href="/candidates/{{ candidate.id }}/publications/select">Choose a different paper</a>
         {% if workflow.draft_id %}
-          <a class="button-link" href="/drafts/{{ workflow.draft_id }}">Review email draft</a>
+          <a class="button-link" href="/drafts/{{ workflow.draft_id }}/manual-review">Review email draft</a>
         {% endif %}
       </div>
       {% if not attachments_ready %}
@@ -87,6 +87,53 @@
       </div>
     {% endif %}
   </section>
+
+  {% if researcher_profile_view %}
+    <section class="panel secondary-panel">
+      <div class="panel-header">
+        <div>
+          <h2>Researcher intelligence</h2>
+          <p>Broader recent-publication context used for paper selection.</p>
+        </div>
+        <span class="status-pill">{{ "%.0f"|format(researcher_profile_view.confidence * 100) }}% confidence</span>
+      </div>
+      <div class="workflow-grid">
+        <div class="workflow-card">
+          <span class="metric-label">Themes</span>
+          {% for theme in researcher_profile_view.themes[:4] %}
+            <strong>{{ theme.label }}</strong>
+            <p>{{ theme.classification }}</p>
+          {% endfor %}
+        </div>
+        <div class="workflow-card">
+          <span class="metric-label">Methods</span>
+          <p>{{ researcher_profile_view.methods|join(", ") or "Not enough metadata" }}</p>
+        </div>
+        <div class="workflow-card">
+          <span class="metric-label">Recent direction</span>
+          <p>{{ researcher_profile_view.recent_direction or "Not enough metadata" }}</p>
+        </div>
+      </div>
+      {% if researcher_profile_view.clusters %}
+        <h3>Publication clusters</h3>
+        <div class="table-wrap compact">
+          <table>
+            <thead><tr><th>Cluster</th><th>Representative papers</th><th>Methods</th><th>Connection</th></tr></thead>
+            <tbody>
+              {% for cluster in researcher_profile_view.clusters %}
+                <tr>
+                  <td>{{ cluster.name }}</td>
+                  <td>{{ cluster.representative_papers|join("; ") }}</td>
+                  <td>{{ cluster.common_methods|join(", ") }}</td>
+                  <td>{{ cluster.connection_to_portfolio or "Needs manual review" }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% endif %}
+    </section>
+  {% endif %}
 
   <section class="panel secondary-panel">
     <div class="panel-header"><div><h2>Manual paper upload</h2><p>Upload only lawful public PDFs or copies you are allowed to use.</p></div></div>

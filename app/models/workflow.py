@@ -15,6 +15,10 @@ class ResearchWorkflowRun(Base, TimestampMixin):
         ForeignKey("publications.id"),
         nullable=True,
     )
+    researcher_profile_id: Mapped[int | None] = mapped_column(
+        ForeignKey("researcher_profiles.id"),
+        nullable=True,
+    )
     paper_file_id: Mapped[int | None] = mapped_column(ForeignKey("paper_files.id"), nullable=True)
     analysis_id: Mapped[int | None] = mapped_column(
         ForeignKey("paper_analyses.id"),
@@ -33,4 +37,7 @@ class ResearchWorkflowRun(Base, TimestampMixin):
     selection_reasons_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     rejected_alternatives_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     retrieval_result_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    summary_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    claim_check_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    ai_request_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     selected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

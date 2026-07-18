@@ -24,6 +24,11 @@ FORBIDDEN_PHRASES = {
     "pivotal",
     "transformative",
     "very interesting",
+    "cutting-edge",
+    "remarkable",
+    "sophisticated",
+    "extensive",
+    "comprehensive",
 }
 MIN_REVIEW_WORDS = 105
 MAX_REVIEW_WORDS = 145
@@ -66,16 +71,18 @@ def generate_manual_draft(
     evidence: EvidenceItem,
 ) -> Draft:
     last_name = candidate.full_name.strip().split()[-1]
+    evidence_excerpt = evidence.evidence_text[:150].strip().rstrip(".")
     body = (
         f"Dear Professor {last_name},\n\n"
         "I am an incoming student at the Texas Academy of Mathematics and Science at the "
         "University of North Texas. "
-        f"I enjoyed reading your paper on {analysis.title}. "
+        f"I enjoyed reading your paper {analysis.title}. "
         f"I was mainly intrigued by {evidence.claim}. "
-        f"The part I noted from the paper was: {evidence.evidence_text[:180].strip()}. "
-        f"I also noted the result that {analysis.results[:140].strip()}.\n\n"
+        f"The part I noted from the paper was: {evidence_excerpt}.\n\n"
         f"My recent work includes {analysis.connection_to_arnav}. "
-        "I would be glad to help with any suitable ongoing project through coding, "
+        "I am especially interested in careful computational work where small checks can "
+        "make the physics or mathematics clearer. "
+        "I would be glad to help with a suitable project through coding, "
         "data analysis, numerical checks, or visualization. "
         "I have attached my resume and research portfolio for context.\n\n"
         "Sincerely,\n"
@@ -119,9 +126,95 @@ def validate_draft_approval(
         errors.append("Draft must be 105-145 words excluding the signoff.")
     if body_paragraph_count(draft.body_text) != 2:
         errors.append("Draft must use exactly two concise body paragraphs.")
+    unsupported = unsupported_factual_sentences(session, draft=draft)
+    if unsupported:
+        errors.append("Draft contains unsupported factual sentence(s).")
     if not required_attachments_ready(project_root_override):
         errors.append("Required resume and portfolio PDFs must be valid.")
     return errors
+
+
+def sentence_claim_checks(session: Session, *, draft: Draft) -> list[dict[str, str]]:
+    analyses = list(
+        session.scalars(
+            select(PaperAnalysis)
+            .where(PaperAnalysis.candidate_id == draft.candidate_id)
+            .order_by(PaperAnalysis.created_at.desc()),
+        ),
+    )
+    evidence_items: list[EvidenceItem] = []
+    for analysis in analyses:
+        evidence_items.extend(
+            session.scalars(select(EvidenceItem).where(EvidenceItem.analysis_id == analysis.id)),
+        )
+    evidence_text = " ".join(
+        [
+            *[analysis.title for analysis in analyses],
+            *[analysis.connection_to_arnav for analysis in analyses],
+            *[item.claim for item in evidence_items],
+            *[item.evidence_text for item in evidence_items],
+        ],
+    ).lower()
+    checks: list[dict[str, str]] = []
+    for sentence in split_sentences(draft.body_text):
+        lowered = sentence.lower()
+        if lowered.startswith(("dear ", "sincerely", "arnav mittal", "incoming student")):
+            classification = "PERSONAL_BACKGROUND"
+            reason = "Signoff or salutation."
+        elif (
+            "incoming student" in lowered
+            or "my recent work includes" in lowered
+            or "i am especially interested" in lowered
+            or "university of north texas" in lowered
+        ):
+            classification = "PERSONAL_BACKGROUND"
+            reason = "Matches allowed personal background."
+        elif "i would be glad" in lowered or "attached my resume" in lowered:
+            classification = "GENERAL_REQUEST"
+            reason = "General request or attachment reminder."
+        elif any(fragment in evidence_text for fragment in key_fragments(lowered)):
+            classification = "SUPPORTED"
+            reason = "Grounded in saved analysis or explicit evidence."
+        else:
+            classification = "UNSUPPORTED"
+            reason = "No matching saved evidence was found."
+        checks.append({"sentence": sentence, "classification": classification, "reason": reason})
+    return checks
+
+
+def unsupported_factual_sentences(session: Session, *, draft: Draft) -> list[dict[str, str]]:
+    return [
+        check
+        for check in sentence_claim_checks(session, draft=draft)
+        if check["classification"] == "UNSUPPORTED"
+    ]
+
+
+def split_sentences(text: str) -> list[str]:
+    text = text.split("Sincerely,", maxsplit=1)[0]
+    normalized = text.replace("\n", " ")
+    sentences: list[str] = []
+    current = ""
+    for character in normalized:
+        current += character
+        if character in ".!?":
+            sentence = current.strip()
+            if sentence:
+                sentences.append(sentence)
+            current = ""
+    if current.strip():
+        sentences.append(current.strip())
+    return sentences
+
+
+def key_fragments(sentence: str) -> list[str]:
+    words = [word.strip(".,:;()").lower() for word in sentence.split()]
+    meaningful = [word for word in words if len(word) > 5]
+    fragments = []
+    for start in range(max(len(meaningful) - 2, 0)):
+        fragments.append(" ".join(meaningful[start : start + 3]))
+    fragments.extend(meaningful)
+    return fragments
 
 
 def approve_draft(session: Session, draft: Draft) -> None:

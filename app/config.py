@@ -44,6 +44,12 @@ class Settings(BaseSettings):
     ai_retries: int = Field(default=2, validation_alias="AI_RETRIES")
     ai_temperature: float = Field(default=0.1, validation_alias="AI_TEMPERATURE")
     ai_max_tokens: int = Field(default=4096, validation_alias="AI_MAX_TOKENS")
+    ai_daily_request_limit: int = Field(default=25, validation_alias="AI_DAILY_REQUEST_LIMIT")
+    ai_max_requests_per_workflow: int = Field(
+        default=2,
+        validation_alias="AI_MAX_REQUESTS_PER_WORKFLOW",
+    )
+    ai_require_free_tier: bool = Field(default=True, validation_alias="AI_REQUIRE_FREE_TIER")
     auto_select_paper: bool = Field(default=True, validation_alias="AUTO_SELECT_PAPER")
     project_root: Path = Path(__file__).resolve().parent.parent
     assets_dir: Path = project_root / "assets"
