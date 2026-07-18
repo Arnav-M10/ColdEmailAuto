@@ -17,6 +17,7 @@ Required future entities include:
 - FollowUpTask.
 - AuditEvent.
 - Job.
+- ResearchWorkflowRun.
 
 Status transitions must enforce the safety requirements in `PROJECT_SPEC.md`.
 
@@ -42,3 +43,9 @@ Phase 1 adds tables for local manual tracking:
 - `follow_up_tasks` for manual follow-up planning.
 
 Status transitions are validated in application services and must not bypass the full-paper analysis requirement before draft readiness.
+
+## Phase 4 Workflow Tables
+
+Phase 4 adds `research_workflow_runs` for the assisted candidate-to-draft workflow. Each run stores the candidate, selected publication, retrieved paper file, generated analysis, generated draft, current stage, failed stage, failure reason, selection score, selection reasons, rejected alternatives, and PDF retrieval result.
+
+This table is intentionally local and auditable. It preserves failures for retry and review instead of hiding them behind a transient request.

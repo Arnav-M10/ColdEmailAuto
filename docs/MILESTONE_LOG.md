@@ -44,6 +44,7 @@ This log records completed implementation milestones. Detailed behavior changes 
 - Phase 4.1a - ordered lawful PDF retrieval: approved papers now try arXiv, official university/institutional public PDFs, approved public full-text hosts, and OpenAlex open-access PDF locations in order; failed attempts mark `NO_FULL_TEXT` with DOI/source context, and duplicate same-candidate paper retrieval reuses the stored PDF record.
 - Phase 4.1b - provider-based AI architecture: generic `AIProvider` interface, Gemini default provider, future OpenAI boundary without implementation, centralized AI settings, Pydantic output validation, grounded evidence checks, retry/error handling, and missing-key behavior that refuses to create fake analysis.
 - Phase 4.2 - rich local paper analysis, text-quality metadata, deterministic evidence extraction, and stricter draft approval gates.
+- Phase 4.3 - AI-assisted research workflow: candidates now have a `Run Research Workflow` action that finds or reuses publications, ranks papers, automatically selects the best suitable full-text paper, retrieves the lawful PDF, extracts text, runs provider-backed analysis, generates a local draft, and stops for review. The workflow records stage, failure reason, selected paper, score reasons, retrieval result, and alternatives considered. Manual override remains available through `Choose a different paper`, and no Outlook or send capability was added.
 
 Phase 4.2 checks:
 
@@ -54,6 +55,15 @@ Phase 4.2 checks:
 - `python -m scripts.secret_scan` passed.
 - `alembic upgrade head` passed.
 - `pip-audit --cache-dir /private/tmp/pip-audit-cache` passed with no known vulnerabilities.
+
+Phase 4.3 checks:
+
+- `.venv/bin/ruff check .` passed.
+- `.venv/bin/mypy app tests scripts` passed.
+- `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/pytest -q` passed, 106 tests.
+- `.venv/bin/bandit -c pyproject.toml -r app scripts` passed.
+- `.venv/bin/python -m scripts.secret_scan` passed.
+- `.venv/bin/alembic upgrade head` passed.
 
 ## Latest Full Gate Set
 

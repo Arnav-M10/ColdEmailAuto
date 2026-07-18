@@ -4,16 +4,96 @@
   <section class="panel">
     <div class="panel-header">
       <div>
-        <h2>{{ paper.original_filename }}</h2>
-        <p>{{ paper.page_count }} page{% if paper.page_count != 1 %}s{% endif %}, {{ paper.size_bytes }} bytes.</p>
+        <h2>{% if publication %}{{ publication.title }}{% else %}{{ paper.original_filename }}{% endif %}</h2>
+        <p>
+          {% if candidate %}{{ candidate.full_name }}{% else %}Candidate unknown{% endif %}
+          {% if publication and publication.year %} - {{ publication.year }}{% endif %}
+          {% if publication and publication.venue %} - {{ publication.venue }}{% endif %}
+        </p>
       </div>
+      {% if workflow %}
+        <span class="status-pill">{{ workflow.status|replace("_", " ")|title }}</span>
+      {% endif %}
     </div>
     <dl class="detail-list">
-      <div><dt>Stored path</dt><dd>{{ paper.stored_path }}</dd></div>
+      <div><dt>Professor</dt><dd>{% if candidate %}<a href="/candidates/{{ candidate.id }}">{{ candidate.full_name }}</a>{% else %}Not recorded{% endif %}</dd></div>
+      <div><dt>Paper title</dt><dd>{% if publication %}{{ publication.title }}{% else %}{{ paper.original_filename }}{% endif %}</dd></div>
+      <div><dt>Year</dt><dd>{% if publication and publication.year %}{{ publication.year }}{% else %}Not recorded{% endif %}</dd></div>
+      <div><dt>DOI</dt><dd>{% if publication and publication.doi %}<code>{{ publication.doi }}</code>{% else %}Not recorded{% endif %}</dd></div>
+      <div><dt>OpenAlex ID</dt><dd>{% if publication and publication.openalex_id %}<a href="{{ publication.openalex_id }}">{{ publication.openalex_id }}</a>{% else %}Not recorded{% endif %}</dd></div>
+      <div><dt>Authorship</dt><dd>
+        {% if authorship %}
+          {{ (authorship.role|replace("_", " ")|title) if authorship.role else "Role unknown" }};
+          position {{ authorship.author_position or "?" }} of {{ authorship.author_count or publication.author_count or "?" }}
+          {% if authorship.corresponding_author %}; corresponding author{% endif %}
+        {% else %}
+          Not recorded
+        {% endif %}
+      </dd></div>
+      <div><dt>Selection score</dt><dd>{% if workflow and workflow.selection_score is not none %}{{ "%.0f"|format(workflow.selection_score) }}{% elif authorship %}{{ "%.0f"|format(authorship.score) }}{% else %}Not scored{% endif %}</dd></div>
+      <div><dt>PDF status</dt><dd>Retrieved</dd></div>
+      <div><dt>PDF source</dt><dd>{% if paper.source_url %}<a href="{{ paper.source_url }}">{{ paper.source_url }}</a>{% else %}Manual upload{% endif %}</dd></div>
+      <div><dt>Lawful source</dt><dd>{{ paper.license_note or "Manual lawful-use upload." }}</dd></div>
       <div><dt>SHA-256</dt><dd><code>{{ paper.sha256 }}</code></dd></div>
-      <div><dt>Parsed text</dt><dd>{{ paper.parsed_text_path or "Not available" }}</dd></div>
+      <div><dt>Page count</dt><dd>{{ paper.page_count }}</dd></div>
+      <div><dt>Extraction</dt><dd>{{ "Parsed text available" if paper.parsed_text_path else "No parsed text available" }}</dd></div>
     </dl>
   </section>
+
+  {% if workflow %}
+    <section class="panel secondary-panel">
+      <div class="panel-header"><div><h2>Workflow result</h2><p>{{ workflow.current_stage }}</p></div></div>
+      {% if workflow.failure_reason %}
+        <div class="empty-state attention-state">
+          <h3>{{ workflow.failed_stage or "Workflow paused" }}</h3>
+          <p>{{ workflow.failure_reason }}</p>
+        </div>
+      {% endif %}
+      {% if workflow_selection_reasons %}
+        <h3>Why this paper</h3>
+        <ul class="reason-list">
+          {% for reason in workflow_selection_reasons %}
+            <li>{{ reason }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+      {% if workflow_retrieval_result %}
+        <dl class="score-breakdown workflow-score">
+          {% for key, value in workflow_retrieval_result.items() %}
+            <div><dt>{{ key|replace("_", " ")|title }}</dt><dd>{{ value }}</dd></div>
+          {% endfor %}
+        </dl>
+      {% endif %}
+      {% if workflow_rejected_alternatives %}
+        <details class="source-details">
+          <summary>Alternatives considered</summary>
+          <div class="event-list">
+            {% for item in workflow_rejected_alternatives %}
+              <div>
+                <strong>{{ item.title }}</strong>
+                <span>Score {{ item.score or "not scored" }}</span>
+                {% if item.reasons %}
+                  <ul class="reason-list compact-list">
+                    {% for reason in item.reasons %}
+                      <li>{{ reason }}</li>
+                    {% endfor %}
+                  </ul>
+                {% endif %}
+              </div>
+            {% endfor %}
+          </div>
+        </details>
+      {% endif %}
+      <div class="split-actions workflow-actions">
+        {% if candidate %}
+          <a class="button-link secondary-button" href="/candidates/{{ candidate.id }}/publications/select">Choose a different paper</a>
+        {% endif %}
+        {% if workflow.draft_id %}
+          <a class="button-link" href="/drafts/{{ workflow.draft_id }}">Review email draft</a>
+        {% endif %}
+      </div>
+    </section>
+  {% endif %}
 
   <section class="panel secondary-panel">
     <div class="panel-header"><div><h2>Extracted text preview</h2><p>Used later for manual analysis and evidence mapping.</p></div></div>

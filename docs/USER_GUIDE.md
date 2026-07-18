@@ -50,17 +50,21 @@ The dashboard shows local workflow counts for imports, discovered and excluded p
 
 ## Phase 3 Publication Memory
 
-Open Publications to see saved candidates and use `Fetch Publications` for one candidate at a time. You can also open a candidate and use the same action from the candidate detail page. The app retrieves recent publications from OpenAlex and confirms DOI metadata through Crossref. If OpenAlex returns multiple plausible authors, the app shows an HTML confirmation page with ranked author profiles, affiliation evidence, topics, ORCID, OpenAlex ID, and profile links. After you confirm an author, the app stores the selected OpenAlex author ID locally, retrieves publications immediately, and sends you to the publication-selection page. If publications for that stored author already exist, the app skips another lookup and shows them immediately. Results are cached under ignored local cache files and are deduplicated by DOI, arXiv ID, OpenAlex ID, or title fingerprint.
+Open Publications to see saved candidates and use `Fetch Publications` for one candidate at a time. You can also open a candidate and use the same action from the candidate detail page. The app retrieves recent publications from OpenAlex and confirms DOI metadata through Crossref. If OpenAlex returns multiple plausible authors, the app shows an HTML confirmation page with ranked author profiles, affiliation evidence, topics, ORCID, OpenAlex ID, and profile links. After you confirm an author, the app stores the selected OpenAlex author ID locally, retrieves publications immediately, and continues according to the configured workflow. If publications for that stored author already exist, the app skips another lookup and shows them immediately. Results are cached under ignored local cache files and are deduplicated by DOI, arXiv ID, OpenAlex ID, or title fingerprint.
 
 The publication-selection page defaults to `Best outreach match`, which combines portfolio similarity, confirmed author role, author count, recency, lawful PDF availability, review-article status, and citation count. You can also sort by newest, highest citation count, or fewest authors. Each paper shows score reasons and component values so the ranking can be audited before you approve a paper.
 
 You can still add publication metadata manually, including a pasted Google Scholar URL or author profile as source context. The app does not scrape Scholar. Author identity matches can remain marked for review when affiliation evidence is weak.
 
-Publication rows are ranked for manual review before any PDF retrieval. Each row shows the title, year, author count, candidate author position, candidate role, fit score, match explanation, full-text availability, and ranking warnings. You must approve a paper before the app will retrieve a PDF or run analysis on a publication-linked PDF.
+Publication rows are ranked for manual review before any manual PDF retrieval. Each row shows the title, year, author count, candidate author position, candidate role, fit score, match explanation, full-text availability, and ranking warnings. You must approve a paper before the manual retrieval route will retrieve a PDF or run analysis on a publication-linked PDF.
 
 ## Phase 4 Retrieval and Analysis
 
 For approved publications with an arXiv ID or valid PDF URL, use Retrieve PDF from the candidate page. Retrieval tries arXiv first, then official university or institutional public PDFs, then approved public full-text hosts, then OpenAlex open-access PDF locations. Downloads go through the safe fetcher and must pass PDF validation before storage. If no lawful PDF can be retrieved, the candidate is marked `NO_FULL_TEXT` and the DOI/source remain visible for manual handling.
+
+Use `Run Research Workflow` from a candidate page for the default assisted path. The workflow finds or reuses publications, ranks papers, skips unsuitable papers and papers without lawful full text, selects the best available paper, retrieves the PDF, extracts text, runs Gemini-backed analysis through the provider interface, generates a local draft, and stops for review. The candidate page shows the current workflow stage, selected paper, PDF status, failures, and retry action. The selected paper page shows DOI, OpenAlex ID, authorship position, selection score, score reasons, lawful PDF source, SHA-256 hash, extraction status, retrieval result, and alternatives considered.
+
+Use `Choose a different paper` when you want to override the automatic selection.
 
 Open a paper to create a structured local analysis; the local analyzer extracts only evidence present in parsed text and records limitations, future work, contribution areas, and overclaim risks.
 

@@ -26,6 +26,7 @@ Implemented so far:
 - Publication memory with OpenAlex/Crossref normalization, manual Scholar reconciliation, deduplication, author identity review, and paper scoring.
 - Lawful PDF retrieval through the safe fetcher, including arXiv PDF planning and source provenance.
 - Provider-based AI analysis architecture with Gemini as the default provider.
+- AI-assisted research workflow from candidate to automatically selected paper, lawful PDF retrieval, provider-backed analysis, and local draft review.
 - Rich local paper analysis fields, text-quality metadata, deterministic evidence extraction, and stricter draft approval gates.
 - Structured logging, request IDs, security headers, secret scan, dependency audit, and no-send regression tests.
 
@@ -139,11 +140,18 @@ AI_TIMEOUT_SECONDS=30
 AI_RETRIES=2
 AI_TEMPERATURE=0.1
 AI_MAX_TOKENS=4096
+AUTO_SELECT_PAPER=true
 ```
 
 `.env` is ignored by Git. Do not commit API keys, logs containing keys, or copied provider responses with private paper text.
 
 If `GEMINI_API_KEY` or `AI_API_KEY` is missing, the app will show a clear setup error and will not create an analysis. It never silently falls back to a mock provider.
+
+## Research Workflow
+
+Open a candidate and use `Run Research Workflow` to continue from saved candidate/publication metadata to a selected paper. The workflow ranks publications by outreach fit, skips papers without lawful full text, retrieves the selected PDF through the safe fetcher, extracts text, analyzes the full paper through the configured AI provider, generates a local draft, and stops for review.
+
+Use `Choose a different paper` when you want a manual override. Manual publication-linked PDF retrieval still requires explicit paper approval.
 
 Baseline:
 

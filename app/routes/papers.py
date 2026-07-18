@@ -2,10 +2,13 @@ from typing import cast
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.paper import EvidenceClassification
+from app.models.publication import Authorship, Publication
+from app.models.workflow import ResearchWorkflowRun
 from app.security.csrf import csrf_token, validate_csrf_token
 from app.services.ai_analysis import arnav_profile_summary, create_ai_analysis_from_text
 from app.services.ai_providers import AIProviderError
@@ -20,6 +23,7 @@ from app.services.candidates import get_candidate
 from app.services.drafting import generate_manual_draft
 from app.services.metadata import assert_publication_selected_for_retrieval
 from app.services.papers import get_paper_file, list_paper_files, read_parsed_text
+from app.services.research_workflow import workflow_review_context
 
 router = APIRouter()
 
@@ -53,6 +57,25 @@ def paper_detail(
     paper_file = get_paper_file(db, paper_file_id)
     if paper_file is None:
         raise HTTPException(status_code=404)
+    candidate = get_candidate(db, paper_file.candidate_id)
+    publication = (
+        db.get(Publication, paper_file.publication_id) if paper_file.publication_id else None
+    )
+    authorship = (
+        db.scalars(
+            select(Authorship).where(
+                Authorship.candidate_id == paper_file.candidate_id,
+                Authorship.publication_id == paper_file.publication_id,
+            ),
+        ).first()
+        if paper_file.publication_id
+        else None
+    )
+    workflow = db.scalars(
+        select(ResearchWorkflowRun)
+        .where(ResearchWorkflowRun.paper_file_id == paper_file.id)
+        .order_by(ResearchWorkflowRun.created_at.desc()),
+    ).first()
     return render(
         request,
         "paper_detail.html",
@@ -60,6 +83,10 @@ def paper_detail(
             "active_page": "papers",
             "page_title": paper_file.original_filename,
             "paper": paper_file,
+            "candidate": candidate,
+            "publication": publication,
+            "authorship": authorship,
+            **workflow_review_context(db, workflow=workflow),
             "parsed_text": read_parsed_text(paper_file)[:4000],
             "analyses": list_analyses_for_paper(db, paper_file.id),
             "csrf_token": csrf_token(),

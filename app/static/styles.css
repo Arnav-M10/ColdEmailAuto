@@ -231,6 +231,36 @@ h3 {
   padding: 16px;
 }
 
+.workflow-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.workflow-card {
+  min-height: 130px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 16px;
+  background: #fbfcfd;
+}
+
+.workflow-card strong {
+  display: block;
+  margin: 8px 0 6px;
+}
+
+.workflow-card p,
+.workflow-message {
+  color: var(--muted);
+}
+
+.workflow-message,
+.workflow-actions,
+.workflow-score {
+  margin-top: 16px;
+}
+
 .metric-label {
   color: var(--muted);
   font-size: 0.78rem;
@@ -743,6 +773,10 @@ th {
   }
 
   .metric-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .workflow-grid {
     grid-template-columns: 1fr;
   }
 

@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.db.session import get_db
 from app.models.candidate import Candidate
 from app.models.publication import Publication
@@ -24,6 +25,7 @@ from app.services.metadata import (
     retrieve_recent_publications_for_candidate,
     upsert_publication_with_authorship,
 )
+from app.services.research_workflow import run_research_workflow
 from app.services.retrieval import retrieve_publication_pdf
 
 router = APIRouter()
@@ -72,6 +74,17 @@ def render_author_selection(
 
 def publication_selection_url(candidate_id: int) -> str:
     return PUBLICATION_SELECTION_PATH.format(candidate_id=candidate_id)
+
+
+def workflow_or_selection_redirect(db: Session, candidate: Candidate) -> RedirectResponse:
+    if not get_settings().auto_select_paper:
+        return RedirectResponse(publication_selection_url(candidate.id), status_code=303)
+    workflow = run_research_workflow(db, candidate=candidate)
+    if workflow.paper_file_id is not None:
+        return RedirectResponse(f"/papers/{workflow.paper_file_id}", status_code=303)
+    if workflow.selected_publication_id is not None:
+        return RedirectResponse(publication_selection_url(candidate.id), status_code=303)
+    return RedirectResponse(f"/candidates/{candidate.id}", status_code=303)
 
 
 @router.get("/publications", response_class=HTMLResponse)
@@ -197,14 +210,17 @@ def candidate_retrieve_live_publications(
                 author_candidates=[],
                 error_message=str(exc),
             )
+        response = workflow_or_selection_redirect(db, candidate)
         db.commit()
-        return RedirectResponse(publication_selection_url(candidate_id), status_code=303)
+        return response
     if candidate.openalex_author_id and candidate_has_publications_for_openalex_author(
         db,
         candidate_id=candidate_id,
         openalex_author_id=candidate.openalex_author_id,
     ):
-        return RedirectResponse(publication_selection_url(candidate_id), status_code=303)
+        response = workflow_or_selection_redirect(db, candidate)
+        db.commit()
+        return response
     if not candidate.openalex_author_id:
         try:
             author_candidates = list_openalex_author_candidates_for_candidate(candidate)
@@ -237,8 +253,9 @@ def candidate_retrieve_live_publications(
             author_candidates=[],
             error_message=str(exc),
         )
+    response = workflow_or_selection_redirect(db, candidate)
     db.commit()
-    return RedirectResponse(publication_selection_url(candidate_id), status_code=303)
+    return response
 
 
 @router.post("/candidates/{candidate_id}/publications/openalex-author/confirm")
@@ -272,8 +289,9 @@ def candidate_confirm_openalex_author(
             author_candidates=[],
             error_message=str(exc),
         )
+    response = workflow_or_selection_redirect(db, candidate)
     db.commit()
-    return RedirectResponse(publication_selection_url(candidate_id), status_code=303)
+    return response
 
 
 @router.post("/candidates/{candidate_id}/publications/openalex-author/reset")
@@ -337,8 +355,8 @@ def candidate_retrieve_publication_pdf(
             candidate_id=candidate_id,
             publication_id=publication_id,
         )
-        retrieve_publication_pdf(db, candidate=candidate, publication=publication)
+        paper_file = retrieve_publication_pdf(db, candidate=candidate, publication=publication)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     db.commit()
-    return RedirectResponse(f"/candidates/{candidate_id}", status_code=303)
+    return RedirectResponse(f"/papers/{paper_file.id}", status_code=303)

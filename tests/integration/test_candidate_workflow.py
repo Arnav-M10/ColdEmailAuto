@@ -11,9 +11,10 @@ from app.config import get_settings
 from app.db.session import create_engine_for_url, get_db, initialize_database
 from app.main import create_app
 from app.models.candidate import Candidate
-from app.models.paper import PaperAnalysis, PaperFile
+from app.models.paper import EvidenceClassification, PaperAnalysis, PaperFile
 from app.models.publication import Authorship, Publication
 from app.security.csrf import csrf_token
+from app.services.ai_providers import EvidenceClaim, MockProvider, PaperAnalysisOutput
 from app.services.candidates import create_candidate
 from app.services.metadata import OpenAlexAuthorCandidate, PublicationMetadata, title_fingerprint
 from app.services.web_safety import FetchResult
@@ -333,8 +334,22 @@ def test_publication_pdf_retrieval_requires_paper_approval(
 
     called: list[int] = []
 
-    def fake_retrieve_publication_pdf(*args: Any, **kwargs: Any) -> None:
+    def fake_retrieve_publication_pdf(*args: Any, **kwargs: Any) -> PaperFile:
         called.append(1)
+        return PaperFile(
+            id=42,
+            candidate_id=1,
+            publication_id=1,
+            original_filename="paper.pdf",
+            stored_path="papers/test/paper.pdf",
+            sha256="9" * 64,
+            size_bytes=128,
+            page_count=1,
+            parsed_text_path="data/cache/paper_text/test.txt",
+            source_url="https://arxiv.org/pdf/2401.12345",
+            license_note="arXiv public PDF.",
+            text_quality_json="{}",
+        )
 
     monkeypatch.setattr(
         "app.routes.publications.retrieve_publication_pdf",
@@ -347,7 +362,142 @@ def test_publication_pdf_retrieval_requires_paper_approval(
     )
 
     assert retrieved.status_code == 303
+    assert retrieved.headers["location"] == "/papers/42"
     assert called == [1]
+
+
+def test_run_research_workflow_redirects_to_selected_paper_detail(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    client, session_factory = build_test_context(tmp_path)
+    with session_factory() as session:
+        candidate = create_candidate(
+            session,
+            full_name="Professor Jane Doe",
+            title="Assistant Professor",
+            institution="Example University",
+            department="Physics",
+            research_area="magnetic fields computational astrophysics",
+            official_profile_url="https://example.edu/jane",
+            notes=None,
+        )
+        publication = Publication(
+            title="Magnetic Structures in Time-Domain Surveys",
+            title_fingerprint=title_fingerprint("Magnetic Structures in Time-Domain Surveys"),
+            year=2025,
+            venue="Example Journal",
+            doi="10.1000/workflow-route",
+            arxiv_id="2504.22222",
+            openalex_id="https://openalex.org/WROUTE",
+            source="openalex",
+            open_access_url="https://arxiv.org/abs/2504.22222",
+            pdf_url="https://arxiv.org/pdf/2504.22222",
+            author_count=2,
+            citation_count=9,
+            work_type="article",
+            metadata_json="{}",
+        )
+        session.add(publication)
+        session.flush()
+        session.add(
+            Authorship(
+                candidate_id=candidate.id,
+                publication_id=publication.id,
+                author_position=1,
+                author_count=2,
+                openalex_author_id="https://openalex.org/A1",
+                confirmed_author_present=True,
+                corresponding_author=False,
+                role="first_author",
+                identity_confidence=0.95,
+                match_status="MATCHED",
+                score=90.0,
+                connection_summary="magnetic fields",
+                warnings_json="[]",
+                score_details_json=(
+                    '{"components":{"portfolio_similarity":30.0},'
+                    '"reasons":["Portfolio similarity matched: magnetic fields.",'
+                    '"Confirmed author is first author.","Author count: 2.",'
+                    '"Recent publication from 2025."]}'
+                ),
+            ),
+        )
+        session.commit()
+
+    settings = get_settings()
+    text_dir = settings.project_root / "data" / "cache" / "paper_text"
+    text_dir.mkdir(parents=True, exist_ok=True)
+    text_path = text_dir / "workflow-route.txt"
+    text_path.write_text(
+        "--- Page 1 --- The paper uses numerical checks and survey analysis.",
+        encoding="utf-8",
+    )
+
+    def fake_retrieve_publication_pdf(*args: Any, **kwargs: Any) -> PaperFile:
+        session = args[0]
+        candidate = kwargs["candidate"]
+        publication = kwargs["publication"]
+        paper = PaperFile(
+            candidate_id=candidate.id,
+            publication_id=publication.id,
+            original_filename="workflow-route.pdf",
+            stored_path="papers/test/workflow-route.pdf",
+            sha256="8" * 64,
+            size_bytes=512,
+            page_count=1,
+            parsed_text_path=str(text_path.relative_to(settings.project_root)),
+            source_url="https://arxiv.org/pdf/2504.22222",
+            license_note="arXiv public PDF.",
+            text_quality_json="{}",
+        )
+        session.add(paper)
+        session.flush()
+        return paper
+
+    provider = MockProvider(
+        PaperAnalysisOutput(
+            title="Magnetic Structures in Time-Domain Surveys",
+            research_question="How do surveys identify magnetic structures?",
+            motivation="The paper studies time-domain survey signals.",
+            methods="The paper uses numerical checks and survey analysis.",
+            results="The paper reports a compact analysis workflow.",
+            overclaim_risks="Do not imply independent verification.",
+            connection_to_arnav="scientific Python and magnetic-field analysis",
+            confidence=0.84,
+            evidence=[
+                EvidenceClaim(
+                    claim="the paper uses numerical checks and survey analysis",
+                    evidence_text="The paper uses numerical checks and survey analysis.",
+                    page_number=1,
+                    section_name="Extracted text",
+                    classification=EvidenceClassification.EXPLICIT,
+                    confidence=0.9,
+                ),
+            ],
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.research_workflow.retrieve_publication_pdf",
+        fake_retrieve_publication_pdf,
+    )
+    monkeypatch.setattr("app.services.research_workflow.get_ai_provider", lambda: provider)
+    monkeypatch.setattr(
+        "app.services.research_workflow.required_attachments_ready",
+        lambda: True,
+    )
+
+    response = client.post(
+        "/candidates/1/research-workflow/run",
+        data={"csrf": csrf_token()},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert str(response.url).endswith("/papers/1")
+    assert "Magnetic Structures in Time-Domain Surveys" in response.text
+    assert "Why this paper" in response.text
+    assert "Review email draft" in response.text
 
 
 def test_publication_linked_analysis_requires_paper_approval(tmp_path: Path) -> None:
@@ -671,6 +821,11 @@ def test_mit_discovery_save_then_fetch_publications_for_kevin_burdge(
     monkeypatch.setattr("app.routes.discovery.SafeFetcher", FakeFetcher)
     monkeypatch.setattr("app.services.metadata.OpenAlexClient", FakeOpenAlexClient)
     monkeypatch.setattr("app.services.metadata.CrossrefClient", FakeCrossrefClient)
+    settings = get_settings()
+    monkeypatch.setattr(
+        "app.routes.publications.get_settings",
+        lambda: settings.model_copy(update={"auto_select_paper": False}),
+    )
     client = build_test_client(tmp_path)
 
     resolved = client.post(
@@ -861,6 +1016,11 @@ def test_mit_kevin_burdge_openalex_author_confirmation_fetches_publications(
     monkeypatch.setattr(
         "app.services.metadata.load_research_portfolio_text",
         lambda: "compact binaries time-domain astrophysics stellar dynamics survey analysis",
+    )
+    settings = get_settings()
+    monkeypatch.setattr(
+        "app.routes.publications.get_settings",
+        lambda: settings.model_copy(update={"auto_select_paper": False}),
     )
     client, session_factory = build_test_context(tmp_path)
 

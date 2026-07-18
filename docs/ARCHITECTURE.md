@@ -92,3 +92,11 @@ Provider-backed analysis is isolated behind `app.services.ai_providers.AIProvide
 AI settings live in `app.config.Settings`: provider, model, API key, timeout, retries, temperature, and max tokens. The Gemini provider owns all Gemini-specific HTTP shape, endpoint construction, response parsing, retry handling, invalid-key errors, timeout errors, malformed JSON handling, schema validation, and prompt-injection-resistant instructions.
 
 Provider output is validated with Pydantic before persistence. Evidence excerpts must appear in the parsed paper text, at least one `EXPLICIT` claim is required, and failed validation creates no analysis row. Test-only mock providers are injectable into services but cannot be selected from runtime settings.
+
+## AI-Assisted Research Workflow
+
+`ResearchWorkflowRun` records candidate-level automation from publication retrieval through local draft review. The workflow is local-first and stage-based: finding publications, ranking papers, selecting a paper, retrieving a lawful PDF, extracting text, analyzing the paper, generating the summary context, generating the email draft, and ready for review.
+
+Automatic paper selection uses the existing outreach score as the primary ordering, then applies suitability gates before retrieval. A paper is skipped when the confirmed author is absent, the work is stale, portfolio similarity is weak, no lawful full text is available, the author list is too large, the candidate is not first/last/corresponding author, or the work type is unsuitable for outreach. The selected paper is recorded with score reasons and rejected alternatives.
+
+Manual retrieval routes still require explicit paper approval. The automatic workflow may approve its own selected paper for retrieval, records that automatic decision, and never sends email or creates Outlook drafts.

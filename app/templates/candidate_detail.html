@@ -19,6 +19,76 @@
   </section>
 
   <section class="panel secondary-panel">
+    <div class="panel-header">
+      <div>
+        <h2>Research workflow</h2>
+        <p>Automatic paper selection, lawful PDF retrieval, paper analysis, and local draft preparation.</p>
+      </div>
+      <form method="post" action="/candidates/{{ candidate.id }}/research-workflow/run">
+        <input type="hidden" name="csrf" value="{{ csrf_token }}">
+        <button type="submit">{% if workflow and workflow.status == "FAILED" %}Retry workflow{% else %}Run Research Workflow{% endif %}</button>
+      </form>
+    </div>
+    {% if workflow %}
+      <div class="workflow-grid">
+        <div class="workflow-card">
+          <span class="metric-label">Status</span>
+          <strong>{{ workflow.status|replace("_", " ")|title }}</strong>
+          <p>{{ workflow.current_stage }}</p>
+        </div>
+        <div class="workflow-card">
+          <span class="metric-label">Selected paper</span>
+          {% if selected_publication %}
+            <strong>{{ selected_publication.title }}</strong>
+            <p>{{ selected_publication.year or "Year unknown" }}{% if selected_publication.venue %}, {{ selected_publication.venue }}{% endif %}</p>
+          {% else %}
+            <strong>Not selected</strong>
+            <p>No suitable paper has been selected yet.</p>
+          {% endif %}
+        </div>
+        <div class="workflow-card">
+          <span class="metric-label">PDF</span>
+          {% if selected_paper_file %}
+            <strong>Retrieved</strong>
+            <p><a class="text-link" href="/papers/{{ selected_paper_file.id }}">Open paper detail</a></p>
+          {% else %}
+            <strong>Pending</strong>
+            <p>No PDF has been stored for this workflow.</p>
+          {% endif %}
+        </div>
+      </div>
+      {% if workflow.failure_reason %}
+        <div class="empty-state attention-state workflow-message">
+          <h3>{{ workflow.failed_stage or "Workflow paused" }}</h3>
+          <p>{{ workflow.failure_reason }}</p>
+        </div>
+      {% endif %}
+      {% if workflow_selection_reasons %}
+        <h3>Selection reasons</h3>
+        <ul class="reason-list">
+          {% for reason in workflow_selection_reasons %}
+            <li>{{ reason }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+      <div class="split-actions workflow-actions">
+        <a class="button-link secondary-button" href="/candidates/{{ candidate.id }}/publications/select">Choose a different paper</a>
+        {% if workflow.draft_id %}
+          <a class="button-link" href="/drafts/{{ workflow.draft_id }}">Review email draft</a>
+        {% endif %}
+      </div>
+      {% if not attachments_ready %}
+        <p class="muted-text workflow-message">Resume and research portfolio PDFs must be present and valid before a draft can be marked ready.</p>
+      {% endif %}
+    {% else %}
+      <div class="empty-state">
+        <h3>No workflow run yet</h3>
+        <p>Use the workflow when a candidate has a confirmed OpenAlex author or enough publication metadata to rank papers.</p>
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="panel secondary-panel">
     <div class="panel-header"><div><h2>Manual paper upload</h2><p>Upload only lawful public PDFs or copies you are allowed to use.</p></div></div>
     <form class="form-grid" method="post" action="/candidates/{{ candidate.id }}/papers" enctype="multipart/form-data">
       <input type="hidden" name="csrf" value="{{ csrf_token }}">
