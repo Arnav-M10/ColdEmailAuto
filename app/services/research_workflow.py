@@ -82,12 +82,18 @@ def run_research_workflow(
     candidate: Candidate,
     provider: AIProvider | None = None,
     pdf_fetcher: PDFFetcherLike | None = None,
+    workflow: ResearchWorkflowRun | None = None,
 ) -> ResearchWorkflowRun:
-    workflow = ResearchWorkflowRun(candidate_id=candidate.id)
-    session.add(workflow)
-    session.flush()
+    if workflow is None:
+        workflow = ResearchWorkflowRun(candidate_id=candidate.id)
+        session.add(workflow)
+        session.flush()
+    else:
+        prepare_workflow_for_resume(workflow)
     try:
         ensure_publications(session, candidate=candidate, workflow=workflow)
+        if workflow.status == "WAITING_FOR_AUTHOR_CONFIRMATION":
+            return workflow
         set_stage(workflow, "Understanding researcher")
         profile = build_or_reuse_researcher_profile(session, candidate=candidate)
         workflow.researcher_profile_id = profile.id
@@ -213,10 +219,12 @@ def ensure_publications(
     if list_candidate_publications(session, candidate.id):
         return
     if not candidate.openalex_author_id:
-        raise WorkflowStageError(
-            "Finding publications",
-            "OpenAlex author identity must be confirmed before running the workflow.",
+        workflow.status = "WAITING_FOR_AUTHOR_CONFIRMATION"
+        workflow.failed_stage = None
+        workflow.failure_reason = (
+            "Confirm the OpenAlex author profile before the workflow retrieves publications."
         )
+        return
     retrieve_recent_publications_for_candidate(session, candidate=candidate)
 
 
@@ -474,6 +482,13 @@ def fail_workflow(workflow: ResearchWorkflowRun, stage: str, reason: str) -> Non
     workflow.failed_stage = stage
     workflow.failure_reason = reason
     workflow.current_stage = stage
+
+
+def prepare_workflow_for_resume(workflow: ResearchWorkflowRun) -> None:
+    workflow.status = "RUNNING"
+    workflow.current_stage = "Finding publications"
+    workflow.failed_stage = None
+    workflow.failure_reason = None
 
 
 def _score_components(authorship: Authorship) -> dict[str, float]:

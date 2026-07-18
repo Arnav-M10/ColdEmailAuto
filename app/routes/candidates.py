@@ -180,6 +180,11 @@ def candidate_run_research_workflow(
         raise HTTPException(status_code=404)
     workflow = run_research_workflow(db, candidate=candidate)
     db.commit()
+    if workflow.status == "WAITING_FOR_AUTHOR_CONFIRMATION":
+        return RedirectResponse(
+            f"/candidates/{candidate_id}/publications/openalex-author/confirm?resume_workflow=1",
+            status_code=303,
+        )
     if workflow.draft_id is not None:
         return RedirectResponse(f"/drafts/{workflow.draft_id}/manual-review", status_code=303)
     if workflow.paper_file_id is not None:

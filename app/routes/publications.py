@@ -9,6 +9,7 @@ from app.config import get_settings
 from app.db.session import get_db
 from app.models.candidate import Candidate
 from app.models.publication import Publication
+from app.models.workflow import ResearchWorkflowRun
 from app.security.csrf import csrf_token, validate_csrf_token
 from app.services.candidates import get_candidate, list_candidates
 from app.services.metadata import (
@@ -25,7 +26,7 @@ from app.services.metadata import (
     retrieve_recent_publications_for_candidate,
     upsert_publication_with_authorship,
 )
-from app.services.research_workflow import run_research_workflow
+from app.services.research_workflow import latest_workflow_run, run_research_workflow
 from app.services.retrieval import retrieve_publication_pdf
 
 router = APIRouter()
@@ -51,6 +52,7 @@ def render_author_selection(
     *,
     candidate: Candidate,
     author_candidates: Sequence[OpenAlexAuthorCandidate],
+    resume_workflow: bool = False,
     error_message: str | None = None,
 ) -> HTMLResponse:
     preselected_author_id = ""
@@ -66,6 +68,7 @@ def render_author_selection(
             "candidate": candidate,
             "author_candidates": author_candidates,
             "preselected_author_id": preselected_author_id,
+            "resume_workflow": resume_workflow,
             "error_message": error_message,
             "csrf_token": csrf_token(),
         },
@@ -79,7 +82,11 @@ def publication_selection_url(candidate_id: int) -> str:
 def workflow_or_selection_redirect(db: Session, candidate: Candidate) -> RedirectResponse:
     if not get_settings().auto_select_paper:
         return RedirectResponse(publication_selection_url(candidate.id), status_code=303)
-    workflow = run_research_workflow(db, candidate=candidate)
+    workflow = run_research_workflow(
+        db,
+        candidate=candidate,
+        workflow=waiting_author_workflow(db, candidate.id),
+    )
     if workflow.draft_id is not None:
         return RedirectResponse(f"/drafts/{workflow.draft_id}/manual-review", status_code=303)
     if workflow.paper_file_id is not None:
@@ -87,6 +94,27 @@ def workflow_or_selection_redirect(db: Session, candidate: Candidate) -> Redirec
     if workflow.selected_publication_id is not None:
         return RedirectResponse(publication_selection_url(candidate.id), status_code=303)
     return RedirectResponse(f"/candidates/{candidate.id}", status_code=303)
+
+
+def author_confirmation_url(candidate_id: int, *, resume_workflow: bool = False) -> str:
+    suffix = "?resume_workflow=1" if resume_workflow else ""
+    return f"/candidates/{candidate_id}/publications/openalex-author/confirm{suffix}"
+
+
+def waiting_author_workflow(db: Session, candidate_id: int) -> ResearchWorkflowRun | None:
+    workflow = latest_workflow_run(db, candidate_id)
+    if workflow and workflow.status == "WAITING_FOR_AUTHOR_CONFIRMATION":
+        return workflow
+    return None
+
+
+def load_author_candidates_or_error(
+    candidate: Candidate,
+) -> tuple[list[OpenAlexAuthorCandidate], str | None]:
+    try:
+        return list_openalex_author_candidates_for_candidate(candidate), None
+    except Exception as exc:
+        return [], f"OpenAlex author lookup failed: {exc}"
 
 
 @router.get("/publications", response_class=HTMLResponse)
@@ -139,6 +167,29 @@ def candidate_publication_selection(
             "selected_sort": selected_sort,
             "csrf_token": csrf_token(),
         },
+    )
+
+
+@router.get(
+    "/candidates/{candidate_id}/publications/openalex-author/confirm",
+    response_class=HTMLResponse,
+)
+def candidate_openalex_author_confirmation(
+    request: Request,
+    candidate_id: int,
+    resume_workflow: bool = Query(False),
+    db: Session = Depends(get_db),
+) -> HTMLResponse:
+    candidate = get_candidate(db, candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=404)
+    author_candidates, error_message = load_author_candidates_or_error(candidate)
+    return render_author_selection(
+        request,
+        candidate=candidate,
+        author_candidates=author_candidates,
+        resume_workflow=resume_workflow,
+        error_message=error_message,
     )
 
 
@@ -210,6 +261,7 @@ def candidate_retrieve_live_publications(
                 request,
                 candidate=candidate,
                 author_candidates=[],
+                resume_workflow=False,
                 error_message=str(exc),
             )
         response = workflow_or_selection_redirect(db, candidate)
@@ -231,6 +283,7 @@ def candidate_retrieve_live_publications(
                 request,
                 candidate=candidate,
                 author_candidates=[],
+                resume_workflow=False,
                 error_message=f"OpenAlex author lookup failed: {exc}",
             )
         needs_confirmation = (
@@ -242,6 +295,7 @@ def candidate_retrieve_live_publications(
                 request,
                 candidate=candidate,
                 author_candidates=author_candidates,
+                resume_workflow=False,
             )
     try:
         retrieve_recent_publications_for_candidate(
@@ -253,6 +307,7 @@ def candidate_retrieve_live_publications(
             request,
             candidate=candidate,
             author_candidates=[],
+            resume_workflow=False,
             error_message=str(exc),
         )
     response = workflow_or_selection_redirect(db, candidate)
@@ -266,6 +321,7 @@ def candidate_confirm_openalex_author(
     candidate_id: int,
     csrf: str = Form(...),
     selected_openalex_author_id: str = Form(...),
+    resume_workflow: bool = Form(False),
     db: Session = Depends(get_db),
 ) -> Response:
     validate_csrf_token(csrf)
@@ -289,6 +345,7 @@ def candidate_confirm_openalex_author(
             request,
             candidate=candidate,
             author_candidates=[],
+            resume_workflow=resume_workflow,
             error_message=str(exc),
         )
     response = workflow_or_selection_redirect(db, candidate)

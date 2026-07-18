@@ -20,6 +20,7 @@
     {% if author_candidates %}
       <form method="post" action="/candidates/{{ candidate.id }}/publications/openalex-author/confirm">
         <input type="hidden" name="csrf" value="{{ csrf_token }}">
+        <input type="hidden" name="resume_workflow" value="{{ 1 if resume_workflow else 0 }}">
         <div class="author-option-list">
           {% for author in author_candidates %}
             <label class="author-option{% if author.openalex_id == preselected_author_id %} selected{% endif %}">
@@ -46,10 +47,12 @@
                 </span>
                 <span class="meta-line">ORCID: {{ author.orcid or "Not listed" }}</span>
                 <span class="meta-line">OpenAlex ID: {{ author.openalex_id }}</span>
+                <span class="meta-line">Works count: {{ author.works_count }}</span>
                 <span class="meta-line">Recent publication count: {{ author.recent_works_count }}</span>
                 {% if author.profile_url %}
                   <span class="meta-line"><a class="text-link" href="{{ author.profile_url }}">OpenAlex profile</a></span>
                 {% endif %}
+                <span class="metric-label">Matching explanation</span>
                 <ul class="reason-list compact-list">
                   {% for reason in author.reasons %}
                     <li>{{ reason }}</li>
@@ -61,7 +64,9 @@
         </div>
         <div class="form-actions author-actions">
           <a class="text-link" href="/candidates/{{ candidate.id }}">Cancel</a>
-          <button type="submit">Confirm and Fetch Publications</button>
+          <button type="submit">
+            {% if resume_workflow %}Confirm OpenAlex author{% else %}Confirm and Fetch Publications{% endif %}
+          </button>
         </div>
       </form>
     {% else %}

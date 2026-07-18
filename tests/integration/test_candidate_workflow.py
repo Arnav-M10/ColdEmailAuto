@@ -13,6 +13,7 @@ from app.main import create_app
 from app.models.candidate import Candidate
 from app.models.paper import EvidenceClassification, PaperAnalysis, PaperFile
 from app.models.publication import Authorship, Publication
+from app.models.workflow import ResearchWorkflowRun
 from app.security.csrf import csrf_token
 from app.services.ai_providers import EvidenceClaim, MockProvider, PaperAnalysisOutput
 from app.services.candidates import add_email_address, create_candidate
@@ -511,6 +512,267 @@ def test_run_research_workflow_redirects_to_selected_paper_detail(
     assert "Copy email body" in response.text
     assert "Copy complete email" in response.text
     assert "Attach these two files manually in Outlook." in response.text
+
+
+def test_research_workflow_waits_for_openalex_confirmation_then_resumes(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    client, session_factory = build_test_context(tmp_path)
+    openalex_calls: list[str] = []
+
+    with session_factory() as session:
+        candidate = create_candidate(
+            session,
+            full_name="Kevin Burdge",
+            title="Assistant Professor",
+            institution="MIT",
+            department="Physics",
+            research_area="compact binaries time-domain astrophysics stellar dynamics",
+            official_profile_url="https://physics.mit.edu/faculty/kevin-burdge/",
+            notes=None,
+        )
+        add_email_address(
+            session,
+            candidate_id=candidate.id,
+            email="burdge@mit.edu",
+            source_url="https://physics.mit.edu/faculty/kevin-burdge/",
+            source_type="official_faculty_profile",
+            confidence="HIGH",
+            verification_status="VERIFIED",
+        )
+        session.commit()
+
+    class FakeOpenAlexClient:
+        def search_author_candidates(self, candidate: Any) -> list[OpenAlexAuthorCandidate]:
+            openalex_calls.append(f"author:{candidate.id}:{candidate.full_name}")
+            return [
+                OpenAlexAuthorCandidate(
+                    openalex_id="https://openalex.org/A999999",
+                    display_name="Kevin Burdge",
+                    orcid=None,
+                    institutions=["California Institute of Technology"],
+                    works_count=30,
+                    recent_works_count=6,
+                    confidence=0.55,
+                    reasons=["Exact author-name match."],
+                    raw={},
+                    current_institutions=["California Institute of Technology"],
+                    previous_institutions=[],
+                    topics=["Particle physics"],
+                    profile_url="https://openalex.org/A999999",
+                ),
+                OpenAlexAuthorCandidate(
+                    openalex_id="https://openalex.org/A123456",
+                    display_name="Kevin Burdge",
+                    orcid="https://orcid.org/0000-0002-0000-0000",
+                    institutions=[
+                        "Massachusetts Institute of Technology",
+                        "California Institute of Technology",
+                    ],
+                    works_count=18,
+                    recent_works_count=5,
+                    confidence=0.93,
+                    reasons=[
+                        "Exact author-name match.",
+                        "Current affiliation matches MIT.",
+                        "OpenAlex topics overlap with the recorded research area.",
+                    ],
+                    raw={},
+                    current_institutions=["Massachusetts Institute of Technology"],
+                    previous_institutions=["California Institute of Technology"],
+                    topics=["Astrophysics", "Compact binaries", "Stellar dynamics"],
+                    profile_url="https://openalex.org/A123456",
+                ),
+            ]
+
+        def works_for_author(
+            self,
+            openalex_author_id: str,
+            *,
+            from_year: int | None = None,
+        ) -> list[PublicationMetadata]:
+            openalex_calls.append(f"works:{openalex_author_id}:{from_year}")
+            assert openalex_author_id == "https://openalex.org/A123456"
+            return [
+                PublicationMetadata(
+                    title="Weak Fit Paper Without Full Text",
+                    year=2025,
+                    venue="Example Journal",
+                    doi="10.1000/weak-fit",
+                    arxiv_id=None,
+                    openalex_id="https://openalex.org/WWEAK",
+                    source="openalex",
+                    open_access_url=None,
+                    pdf_url=None,
+                    authors=["Kevin Burdge"],
+                    author_institutions=["Massachusetts Institute of Technology"],
+                    raw={"_retrieval": {"source_url": "https://api.openalex.org/works"}},
+                    citation_count=2,
+                    work_type="article",
+                    topics=["Unrelated instrumentation"],
+                    author_openalex_ids=["https://openalex.org/A123456"],
+                ),
+                PublicationMetadata(
+                    title="Compact Binary Discovery in Time-Domain Surveys",
+                    year=2025,
+                    venue="Example Astrophysics Journal",
+                    doi="10.1000/workflow-confirmed",
+                    arxiv_id="2502.12345",
+                    openalex_id="https://openalex.org/WKEVIN",
+                    source="openalex",
+                    open_access_url="https://arxiv.org/abs/2502.12345",
+                    pdf_url="https://arxiv.org/pdf/2502.12345",
+                    authors=["K. Burdge", "Collaborator"],
+                    author_institutions=["Massachusetts Institute of Technology"],
+                    raw={"_retrieval": {"source_url": "https://api.openalex.org/works"}},
+                    citation_count=12,
+                    work_type="article",
+                    topics=["Compact binaries", "Time-domain astrophysics"],
+                    author_openalex_ids=[
+                        "https://openalex.org/A123456",
+                        "https://openalex.org/A999999",
+                    ],
+                    corresponding_author_positions={1},
+                ),
+            ]
+
+    class FakeCrossrefClient:
+        def work_by_doi(self, doi: str | None) -> PublicationMetadata | None:
+            openalex_calls.append(f"crossref:{doi}")
+            return None
+
+    settings = get_settings()
+    text_dir = settings.project_root / "data" / "cache" / "paper_text"
+    text_dir.mkdir(parents=True, exist_ok=True)
+    text_path = text_dir / "workflow-openalex-confirmation.txt"
+    text_path.write_text(
+        "--- Page 1 --- The paper uses time-domain survey analysis for compact binaries.",
+        encoding="utf-8",
+    )
+
+    def fake_retrieve_publication_pdf(*args: Any, **kwargs: Any) -> PaperFile:
+        session = args[0]
+        candidate = kwargs["candidate"]
+        publication = kwargs["publication"]
+        assert publication.title == "Compact Binary Discovery in Time-Domain Surveys"
+        paper = PaperFile(
+            candidate_id=candidate.id,
+            publication_id=publication.id,
+            original_filename="workflow-openalex-confirmation.pdf",
+            stored_path="papers/test/workflow-openalex-confirmation.pdf",
+            sha256="7" * 64,
+            size_bytes=512,
+            page_count=1,
+            parsed_text_path=str(text_path.relative_to(settings.project_root)),
+            source_url="https://arxiv.org/pdf/2502.12345",
+            license_note="arXiv public PDF.",
+            text_quality_json="{}",
+        )
+        session.add(paper)
+        session.flush()
+        return paper
+
+    provider = MockProvider(
+        PaperAnalysisOutput(
+            title="Compact Binary Discovery in Time-Domain Surveys",
+            research_question="How do time-domain surveys find compact binaries?",
+            motivation="The paper studies compact binary discovery.",
+            methods="The paper uses time-domain survey analysis for compact binaries.",
+            results="The paper reports a compact-binary discovery workflow.",
+            overclaim_risks="Do not imply independent verification.",
+            connection_to_arnav="scientific Python and survey analysis",
+            confidence=0.86,
+            evidence=[
+                EvidenceClaim(
+                    claim="the paper uses time-domain survey analysis",
+                    evidence_text=(
+                        "The paper uses time-domain survey analysis for compact binaries."
+                    ),
+                    page_number=1,
+                    section_name="Extracted text",
+                    classification=EvidenceClassification.EXPLICIT,
+                    confidence=0.9,
+                ),
+            ],
+        ),
+    )
+
+    monkeypatch.setattr("app.services.metadata.OpenAlexClient", FakeOpenAlexClient)
+    monkeypatch.setattr("app.services.metadata.CrossrefClient", FakeCrossrefClient)
+    monkeypatch.setattr(
+        "app.services.metadata.load_research_portfolio_text",
+        lambda: "compact binaries time-domain astrophysics stellar dynamics survey analysis",
+    )
+    monkeypatch.setattr(
+        "app.services.research_workflow.retrieve_publication_pdf",
+        fake_retrieve_publication_pdf,
+    )
+    monkeypatch.setattr("app.services.research_workflow.get_ai_provider", lambda: provider)
+    monkeypatch.setattr(
+        "app.services.research_workflow.required_attachments_ready",
+        lambda: True,
+    )
+
+    confirmation = client.post(
+        "/candidates/1/research-workflow/run",
+        data={"csrf": csrf_token()},
+        follow_redirects=True,
+    )
+
+    assert confirmation.status_code == 200
+    assert str(confirmation.url).endswith(
+        "/candidates/1/publications/openalex-author/confirm?resume_workflow=1",
+    )
+    assert "Confirm OpenAlex Author" in confirmation.text
+    assert "Confirm OpenAlex author" in confirmation.text
+    assert "Works count: 18" in confirmation.text
+    assert "Recent publication count: 5" in confirmation.text
+    assert "Massachusetts Institute of Technology" in confirmation.text
+    assert "Matching explanation" in confirmation.text
+    assert "Current affiliation matches MIT." in confirmation.text
+    assert "value=\"https://openalex.org/A123456\"" in confirmation.text
+    assert "checked" in confirmation.text
+
+    with session_factory() as session:
+        waiting = session.scalars(select(ResearchWorkflowRun)).one()
+        assert waiting.status == "WAITING_FOR_AUTHOR_CONFIRMATION"
+        assert waiting.failed_stage is None
+        assert waiting.current_stage == "Finding publications"
+
+    resumed = client.post(
+        "/candidates/1/publications/openalex-author/confirm",
+        data={
+            "csrf": csrf_token(),
+            "selected_openalex_author_id": "https://openalex.org/A123456",
+            "resume_workflow": "1",
+        },
+        follow_redirects=True,
+    )
+
+    assert resumed.status_code == 200
+    assert str(resumed.url).endswith("/drafts/1/manual-review")
+    assert "Manual Outlook copy review" in resumed.text
+    assert "Compact Binary Discovery in Time-Domain Surveys" in resumed.text
+    assert "Weak Fit Paper Without Full Text" not in resumed.text
+    assert "works:https://openalex.org/A123456:2021" in openalex_calls
+    assert "crossref:10.1000/workflow-confirmed" in openalex_calls
+
+    with session_factory() as session:
+        stored_candidate = session.get(Candidate, 1)
+        assert stored_candidate is not None
+        assert stored_candidate.openalex_author_id == "https://openalex.org/A123456"
+        workflows = list(session.scalars(select(ResearchWorkflowRun)))
+        assert len(workflows) == 1
+        workflow = workflows[0]
+        assert workflow.status == "READY_FOR_REVIEW"
+        assert workflow.selected_publication_id is not None
+        assert workflow.paper_file_id is not None
+        assert workflow.analysis_id is not None
+        assert workflow.draft_id is not None
+        selected = session.get(Publication, workflow.selected_publication_id)
+        assert selected is not None
+        assert selected.title == "Compact Binary Discovery in Time-Domain Surveys"
 
 
 def test_publication_linked_analysis_requires_paper_approval(tmp_path: Path) -> None:
