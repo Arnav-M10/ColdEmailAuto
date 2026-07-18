@@ -63,6 +63,18 @@
           <p>{{ workflow.failure_reason }}</p>
         </div>
       {% endif %}
+      {% if portfolio_input_status %}
+        <div class="empty-state {% if not portfolio_input_status.available %}attention-state{% endif %} workflow-message">
+          <h3>Portfolio input</h3>
+          <p>
+            {{ portfolio_input_status.status|replace("_", " ")|title }}
+            {% if portfolio_input_status.reason %} - {{ portfolio_input_status.reason }}{% endif %}
+          </p>
+          {% if portfolio_input_status.cache_path %}
+            <p class="muted-text">Cached extraction: {{ portfolio_input_status.cache_path }}</p>
+          {% endif %}
+        </div>
+      {% endif %}
       {% if workflow_selection_reasons %}
         <h3>Selection reasons</h3>
         <ul class="reason-list">

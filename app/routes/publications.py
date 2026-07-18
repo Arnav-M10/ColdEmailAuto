@@ -80,19 +80,22 @@ def publication_selection_url(candidate_id: int) -> str:
 
 
 def workflow_or_selection_redirect(db: Session, candidate: Candidate) -> RedirectResponse:
-    if not get_settings().auto_select_paper:
+    waiting_workflow = waiting_author_workflow(db, candidate.id)
+    if not waiting_workflow and not get_settings().auto_select_paper:
         return RedirectResponse(publication_selection_url(candidate.id), status_code=303)
     workflow = run_research_workflow(
         db,
         candidate=candidate,
-        workflow=waiting_author_workflow(db, candidate.id),
+        workflow=waiting_workflow,
     )
     if workflow.draft_id is not None:
         return RedirectResponse(f"/drafts/{workflow.draft_id}/manual-review", status_code=303)
     if workflow.paper_file_id is not None:
         return RedirectResponse(f"/papers/{workflow.paper_file_id}", status_code=303)
-    if workflow.selected_publication_id is not None:
+    if workflow.status == "WAITING_FOR_MANUAL_PAPER_SELECTION":
         return RedirectResponse(publication_selection_url(candidate.id), status_code=303)
+    if workflow.selected_publication_id is not None:
+        return RedirectResponse(f"/candidates/{candidate.id}", status_code=303)
     return RedirectResponse(f"/candidates/{candidate.id}", status_code=303)
 
 

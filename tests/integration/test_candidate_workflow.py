@@ -1,5 +1,6 @@
 from collections.abc import Generator
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from fastapi.testclient import TestClient
@@ -643,6 +644,10 @@ def test_research_workflow_waits_for_openalex_confirmation_then_resumes(
             return None
 
     settings = get_settings()
+    monkeypatch.setattr(
+        "app.routes.publications.get_settings",
+        lambda: settings.model_copy(update={"auto_select_paper": False}),
+    )
     text_dir = settings.project_root / "data" / "cache" / "paper_text"
     text_dir.mkdir(parents=True, exist_ok=True)
     text_path = text_dir / "workflow-openalex-confirmation.txt"
@@ -705,6 +710,26 @@ def test_research_workflow_waits_for_openalex_confirmation_then_resumes(
         lambda: "compact binaries time-domain astrophysics stellar dynamics survey analysis",
     )
     monkeypatch.setattr(
+        "app.services.metadata.load_research_portfolio_text_status",
+        lambda: SimpleNamespace(
+            available=True,
+            text="compact binaries time-domain astrophysics stellar dynamics survey analysis",
+            status="AVAILABLE",
+            reason=None,
+            cache_path="data/cache/portfolio_text/test.txt",
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.research_workflow.load_research_portfolio_text_status",
+        lambda: SimpleNamespace(
+            available=True,
+            text="compact binaries time-domain astrophysics stellar dynamics survey analysis",
+            status="AVAILABLE",
+            reason=None,
+            cache_path="data/cache/portfolio_text/test.txt",
+        ),
+    )
+    monkeypatch.setattr(
         "app.services.research_workflow.retrieve_publication_pdf",
         fake_retrieve_publication_pdf,
     )
@@ -733,6 +758,8 @@ def test_research_workflow_waits_for_openalex_confirmation_then_resumes(
     assert "Current affiliation matches MIT." in confirmation.text
     assert "value=\"https://openalex.org/A123456\"" in confirmation.text
     assert "checked" in confirmation.text
+    assert "Select Publication" not in confirmation.text
+    assert "Approve paper" not in confirmation.text
 
     with session_factory() as session:
         waiting = session.scalars(select(ResearchWorkflowRun)).one()
@@ -755,6 +782,8 @@ def test_research_workflow_waits_for_openalex_confirmation_then_resumes(
     assert "Manual Outlook copy review" in resumed.text
     assert "Compact Binary Discovery in Time-Domain Surveys" in resumed.text
     assert "Weak Fit Paper Without Full Text" not in resumed.text
+    assert "Select Publication" not in resumed.text
+    assert "Approve paper" not in resumed.text
     assert "works:https://openalex.org/A123456:2021" in openalex_calls
     assert "crossref:10.1000/workflow-confirmed" in openalex_calls
 
@@ -1291,6 +1320,16 @@ def test_mit_kevin_burdge_openalex_author_confirmation_fetches_publications(
     monkeypatch.setattr(
         "app.services.metadata.load_research_portfolio_text",
         lambda: "compact binaries time-domain astrophysics stellar dynamics survey analysis",
+    )
+    monkeypatch.setattr(
+        "app.services.metadata.load_research_portfolio_text_status",
+        lambda: SimpleNamespace(
+            available=True,
+            text="compact binaries time-domain astrophysics stellar dynamics survey analysis",
+            status="AVAILABLE",
+            reason=None,
+            cache_path="data/cache/portfolio_text/test.txt",
+        ),
     )
     settings = get_settings()
     monkeypatch.setattr(

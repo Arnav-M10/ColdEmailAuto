@@ -5,6 +5,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.db.session import create_engine_for_url, initialize_database
 from app.models.candidate import Candidate, CandidateStatus
 from app.models.publication import Authorship, Publication
@@ -16,9 +17,11 @@ from app.services.metadata import (
     PublicationMetadata,
     approve_publication_for_retrieval,
     assert_publication_selected_for_retrieval,
+    clear_research_portfolio_text_cache,
     deduplicate_metadata,
     list_candidate_publication_reviews,
     list_candidate_publications,
+    load_research_portfolio_text_status,
     manual_publication_metadata,
     match_candidate_author,
     normalize_openalex_author_id,
@@ -434,6 +437,155 @@ def test_confirmed_openalex_author_id_sets_authorship_without_name_match(
     assert stored.identity_confidence == 0.95
     assert stored.score >= 80
     assert "Candidate name was not found in the author list." not in warnings
+
+
+def test_portfolio_text_status_reports_missing_pdf(tmp_path: Path, monkeypatch: Any) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(
+        "app.services.metadata.get_settings",
+        lambda: settings.model_copy(update={"project_root": tmp_path}),
+    )
+    clear_research_portfolio_text_cache()
+
+    status = load_research_portfolio_text_status()
+
+    assert status.available is False
+    assert status.status == "PORTFOLIO_INPUT_UNAVAILABLE"
+    assert "missing" in (status.reason or "").lower()
+
+
+def test_portfolio_text_status_reports_empty_extraction(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    settings = get_settings()
+    portfolio = tmp_path / "assets" / "arnav_research_portfolio.pdf"
+    portfolio.parent.mkdir(parents=True)
+    portfolio.write_bytes(b"%PDF-empty")
+
+    class EmptyReader:
+        is_encrypted = False
+
+        def __init__(self, _path: Path) -> None:
+            self.pages = [self]
+
+        def extract_text(self) -> str:
+            return ""
+
+    monkeypatch.setattr(
+        "app.services.metadata.get_settings",
+        lambda: settings.model_copy(update={"project_root": tmp_path}),
+    )
+    monkeypatch.setattr("app.services.metadata.PdfReader", EmptyReader)
+    clear_research_portfolio_text_cache()
+
+    status = load_research_portfolio_text_status()
+
+    assert status.available is False
+    assert status.status == "PORTFOLIO_INPUT_UNAVAILABLE"
+    assert "empty" in (status.reason or "").lower()
+
+
+def test_portfolio_text_extraction_cache_is_reused(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    settings = get_settings()
+    portfolio = tmp_path / "assets" / "arnav_research_portfolio.pdf"
+    portfolio.parent.mkdir(parents=True)
+    portfolio.write_bytes(b"%PDF-cache")
+    calls = {"count": 0}
+
+    class TextPage:
+        def extract_text(self) -> str:
+            calls["count"] += 1
+            return "compact binaries time-domain astrophysics"
+
+    class TextReader:
+        is_encrypted = False
+
+        def __init__(self, _path: Path) -> None:
+            self.pages = [TextPage()]
+
+    monkeypatch.setattr(
+        "app.services.metadata.get_settings",
+        lambda: settings.model_copy(update={"project_root": tmp_path}),
+    )
+    monkeypatch.setattr("app.services.metadata.PdfReader", TextReader)
+    clear_research_portfolio_text_cache()
+
+    first = load_research_portfolio_text_status()
+    clear_research_portfolio_text_cache()
+    second = load_research_portfolio_text_status()
+
+    assert first.available is True
+    assert second.available is True
+    assert second.text == "compact binaries time-domain astrophysics"
+    assert second.cache_path is not None
+    assert calls["count"] == 1
+
+
+def test_zero_similarity_is_distinct_from_unavailable_portfolio(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    engine = create_engine_for_url(f"sqlite:///{tmp_path / 'test.db'}")
+    initialize_database(engine)
+    metadata = PublicationMetadata(
+        title="Quantum Materials Measurement",
+        year=2025,
+        venue="Materials Journal",
+        doi="10.1000/zero",
+        arxiv_id="2501.99999",
+        openalex_id="https://openalex.org/WZERO",
+        source="openalex",
+        open_access_url="https://arxiv.org/abs/2501.99999",
+        pdf_url="https://arxiv.org/pdf/2501.99999",
+        authors=["Jane Doe"],
+        author_institutions=["Example University"],
+        raw={},
+        topics=["Quantum materials"],
+        author_openalex_ids=["https://openalex.org/A1"],
+    )
+    settings = get_settings()
+    monkeypatch.setattr(
+        "app.services.metadata.get_settings",
+        lambda: settings.model_copy(update={"project_root": tmp_path}),
+    )
+    clear_research_portfolio_text_cache()
+
+    with Session(engine) as session:
+        candidate = create_candidate(
+            session,
+            full_name="Jane Doe",
+            title=None,
+            institution="Example University",
+            department=None,
+            research_area="quantum materials",
+            official_profile_url=None,
+            notes=None,
+        )
+        match = match_candidate_author(
+            candidate,
+            metadata,
+            confirmed_openalex_author_id="https://openalex.org/A1",
+        )
+        true_zero = score_publication_for_candidate(
+            candidate,
+            metadata,
+            match,
+            portfolio_text="asteroid orbit covariance monte carlo",
+        )
+        unavailable = score_publication_for_candidate(candidate, metadata, match)
+
+    assert true_zero.components["portfolio_similarity"] == 0.0
+    assert not any(
+        warning.startswith("PORTFOLIO_INPUT_UNAVAILABLE") for warning in true_zero.warnings
+    )
+    assert "portfolio_similarity" not in unavailable.components
+    assert any(
+        warning.startswith("PORTFOLIO_INPUT_UNAVAILABLE") for warning in unavailable.warnings
+    )
 
 
 def test_publication_ranking_prefers_portfolio_similarity_and_supports_sort_modes(

@@ -26,6 +26,11 @@ DOI_PREFIX_RE = re.compile(r"^https?://(?:dx\.)?doi\.org/", re.I)
 OPENALEX_AUTHOR_RE = re.compile(r"^(?:https://openalex\.org/)?(A[0-9]+)$", re.I)
 RECENT_YEAR_THRESHOLD = 2021
 LARGE_AUTHOR_WARNING_THRESHOLD = 25
+PORTFOLIO_TEXT_EXTRACTION_VERSION = "pypdf-v1"
+
+
+class PortfolioInputUnavailable(ValueError):
+    pass
 
 
 class MetadataClientLike(Protocol):
@@ -89,6 +94,17 @@ class PublicationScore:
     warnings: list[str]
     components: dict[str, float]
     reasons: list[str]
+
+
+@dataclass(frozen=True)
+class PortfolioTextStatus:
+    available: bool
+    text: str
+    status: str
+    reason: str | None
+    source_path: str
+    sha256: str | None = None
+    cache_path: str | None = None
 
 
 @dataclass(frozen=True)
@@ -774,16 +790,27 @@ def score_publication_for_candidate(
     *,
     portfolio_text: str | None = None,
 ) -> PublicationScore:
-    profile_text = portfolio_text if portfolio_text is not None else load_research_portfolio_text()
+    portfolio_unavailable_reason: str | None = None
+    if portfolio_text is not None:
+        profile_text = portfolio_text
+    else:
+        portfolio_status = load_research_portfolio_text_status()
+        profile_text = portfolio_status.text
+        if not portfolio_status.available:
+            portfolio_unavailable_reason = portfolio_status.reason
     similarity, overlap_terms = semantic_similarity_to_portfolio(metadata, profile_text)
     score = 0.0
     warnings = list(match.warnings)
     reasons: list[str] = []
     components: dict[str, float] = {}
 
-    semantic_points = round(similarity * 45, 2)
-    components["portfolio_similarity"] = semantic_points
-    score += semantic_points
+    if portfolio_unavailable_reason:
+        warnings.append(f"PORTFOLIO_INPUT_UNAVAILABLE: {portfolio_unavailable_reason}")
+        reasons.append(portfolio_unavailable_reason)
+    else:
+        semantic_points = round(similarity * 45, 2)
+        components["portfolio_similarity"] = semantic_points
+        score += semantic_points
     if overlap_terms:
         reasons.append(
             f"Portfolio similarity matched: {', '.join(overlap_terms[:8])}.",
@@ -791,11 +818,6 @@ def score_publication_for_candidate(
     elif profile_text.strip():
         warnings.append("No strong semantic overlap with the research portfolio.")
         reasons.append("No strong portfolio term overlap was detected.")
-    else:
-        warnings.append("Research portfolio text was unavailable for similarity scoring.")
-        reasons.append(
-            "Portfolio similarity could not be scored because portfolio text was unavailable.",
-        )
 
     role_points = role_score(match)
     components["confirmed_author_role"] = role_points
@@ -853,7 +875,10 @@ def score_publication_for_candidate(
         score += 3.0
     else:
         components["confirmed_author_confidence"] = 0.0
-    connection = ", ".join(overlap_terms[:8]) if overlap_terms else "Needs manual review"
+    if portfolio_unavailable_reason:
+        connection = "Portfolio input unavailable"
+    else:
+        connection = ", ".join(overlap_terms[:8]) if overlap_terms else "Needs manual review"
     return PublicationScore(
         score=round(score, 2),
         connection_summary=connection,
@@ -911,16 +936,132 @@ def is_review_article(metadata: PublicationMetadata) -> bool:
     return work_type == "review" or "review" in title or "survey" in title
 
 
-@lru_cache(maxsize=1)
-def load_research_portfolio_text() -> str:
-    path = get_settings().project_root / PORTFOLIO_PATH
+def load_research_portfolio_text_status() -> PortfolioTextStatus:
+    root = get_settings().project_root
+    path = root / PORTFOLIO_PATH
+    source_path = str(PORTFOLIO_PATH)
     if not path.exists():
-        return ""
+        return PortfolioTextStatus(
+            available=False,
+            text="",
+            status="PORTFOLIO_INPUT_UNAVAILABLE",
+            reason=f"Research portfolio PDF is missing at {source_path}.",
+            source_path=source_path,
+        )
+    if not path.is_file():
+        return PortfolioTextStatus(
+            available=False,
+            text="",
+            status="PORTFOLIO_INPUT_UNAVAILABLE",
+            reason=f"Research portfolio path is not a file: {source_path}.",
+            source_path=source_path,
+        )
+    try:
+        with path.open("rb") as file:
+            header = file.read(5)
+        if header != b"%PDF-":
+            return PortfolioTextStatus(
+                available=False,
+                text="",
+                status="PORTFOLIO_INPUT_UNAVAILABLE",
+                reason=f"Research portfolio is not a valid PDF: {source_path}.",
+                source_path=source_path,
+            )
+        digest = sha256(path.read_bytes()).hexdigest()
+        return _load_research_portfolio_text_status_cached(str(root), digest)
+    except Exception as exc:
+        return PortfolioTextStatus(
+            available=False,
+            text="",
+            status="PORTFOLIO_INPUT_UNAVAILABLE",
+            reason=f"Research portfolio PDF text extraction failed: {exc.__class__.__name__}.",
+            source_path=source_path,
+        )
+
+
+@lru_cache(maxsize=8)
+def _load_research_portfolio_text_status_cached(
+    project_root_value: str,
+    portfolio_sha256: str,
+) -> PortfolioTextStatus:
+    root = Path(project_root_value)
+    path = root / PORTFOLIO_PATH
+    source_path = str(PORTFOLIO_PATH)
+    cache_path = (
+        root
+        / "data"
+        / "cache"
+        / "portfolio_text"
+        / f"{portfolio_sha256}-{PORTFOLIO_TEXT_EXTRACTION_VERSION}.txt"
+    )
+    if cache_path.exists():
+        cached_text = cache_path.read_text(encoding="utf-8")
+        if cached_text.strip():
+            return PortfolioTextStatus(
+                available=True,
+                text=cached_text,
+                status="AVAILABLE",
+                reason=None,
+                source_path=source_path,
+                sha256=portfolio_sha256,
+                cache_path=str(cache_path.relative_to(root)),
+            )
     try:
         reader = PdfReader(path)
-        return "\n".join(page.extract_text() or "" for page in reader.pages)
-    except Exception:
-        return ""
+        if reader.is_encrypted:
+            return PortfolioTextStatus(
+                available=False,
+                text="",
+                status="PORTFOLIO_INPUT_UNAVAILABLE",
+                reason="Research portfolio PDF is encrypted and cannot be extracted.",
+                source_path=source_path,
+                sha256=portfolio_sha256,
+            )
+        extracted_text = "\n".join(page.extract_text() or "" for page in reader.pages)
+        if not extracted_text.strip():
+            return PortfolioTextStatus(
+                available=False,
+                text="",
+                status="PORTFOLIO_INPUT_UNAVAILABLE",
+                reason="Research portfolio PDF text extraction returned empty text.",
+                source_path=source_path,
+                sha256=portfolio_sha256,
+            )
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(extracted_text, encoding="utf-8")
+        return PortfolioTextStatus(
+            available=True,
+            text=extracted_text,
+            status="AVAILABLE",
+            reason=None,
+            source_path=source_path,
+            sha256=portfolio_sha256,
+            cache_path=str(cache_path.relative_to(root)),
+        )
+    except Exception as exc:
+        return PortfolioTextStatus(
+            available=False,
+            text="",
+            status="PORTFOLIO_INPUT_UNAVAILABLE",
+            reason=f"Research portfolio PDF text extraction failed: {exc.__class__.__name__}.",
+            source_path=source_path,
+            sha256=portfolio_sha256,
+        )
+
+
+def clear_research_portfolio_text_cache() -> None:
+    _load_research_portfolio_text_status_cached.cache_clear()
+
+
+def load_research_portfolio_text() -> str:
+    return load_research_portfolio_text_status().text
+
+
+def require_research_portfolio_text() -> str:
+    status = load_research_portfolio_text_status()
+    if not status.available:
+        raise PortfolioInputUnavailable(status.reason or "Research portfolio text is unavailable.")
+    return status.text
 
 
 def semantic_similarity_to_portfolio(
@@ -1195,7 +1336,8 @@ def retrieve_recent_publications_for_candidate(
         crossref_metadata = crossref_client.work_by_doi(metadata.doi) if metadata.doi else None
         merged.append(merge_crossref_confirmation(metadata, crossref_metadata))
     deduped = deduplicate_metadata(merged)
-    portfolio_text = load_research_portfolio_text()
+    portfolio_status = load_research_portfolio_text_status()
+    portfolio_text = portfolio_status.text if portfolio_status.available else None
     authorship_ids: set[int] = set()
     review_required_ids: set[int] = set()
     for metadata in deduped:

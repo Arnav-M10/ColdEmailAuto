@@ -131,6 +131,12 @@ Using `python -m uvicorn` keeps startup tied to the installed Python environment
 executable shim is not on `PATH`. The FastAPI application object is `app` in `app/main.py`, so
 `app.main:app` is the correct import target.
 
+Required private PDFs under `assets/` are intentionally ignored by Git. A Railway deployment built
+only from the repository will not have `assets/arnav_resume.pdf` or
+`assets/arnav_research_portfolio.pdf` unless they are provided through a private deployment
+artifact or persistent volume. The workflow now reports `PORTFOLIO_INPUT_UNAVAILABLE` instead of
+treating missing portfolio text as a real zero-similarity score.
+
 Validate required local assets and refresh their ignored hash manifest:
 
 ```bash

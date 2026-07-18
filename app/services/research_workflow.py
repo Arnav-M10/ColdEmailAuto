@@ -25,6 +25,7 @@ from app.services.metadata import (
     RECENT_YEAR_THRESHOLD,
     approve_publication_for_retrieval,
     list_candidate_publications,
+    load_research_portfolio_text_status,
     retrieve_recent_publications_for_candidate,
 )
 from app.services.research_intelligence import (
@@ -103,11 +104,11 @@ def run_research_workflow(
         workflow.rejected_alternatives_json = json.dumps(selection.rejected)
         workflow.selection_reasons_json = json.dumps(selection.reasons)
         if selection.authorship is None or selection.publication is None:
-            workflow.status = "FAILED"
-            workflow.failed_stage = "Selecting paper"
+            workflow.status = "WAITING_FOR_MANUAL_PAPER_SELECTION"
+            workflow.failed_stage = None
             workflow.failure_reason = (
                 "No suitable publication with lawful full text was available. "
-                "The best metadata-only paper is shown for manual review."
+                "Manual paper selection is required before PDF retrieval or analysis."
             )
             if selection.metadata_only is not None:
                 workflow.selected_publication_id = selection.metadata_only.id
@@ -297,7 +298,9 @@ def suitability_rejections(authorship: Authorship, publication: Publication) -> 
     if publication.year is None or publication.year < RECENT_YEAR_THRESHOLD:
         reasons.append("Publication is not recent enough.")
     components = _score_components(authorship)
-    if components.get("portfolio_similarity", 0.0) < 8.0:
+    if any(str(warning).startswith("PORTFOLIO_INPUT_UNAVAILABLE") for warning in warnings):
+        reasons.append("Portfolio input is unavailable, so automatic ranking is blocked.")
+    elif components.get("portfolio_similarity", 0.0) < 8.0:
         reasons.append("Portfolio fit is too weak for automatic analysis.")
     if plan_publication_pdf_retrieval(publication) is None:
         reasons.append("No lawful full text is available.")
@@ -470,6 +473,7 @@ def workflow_review_context(
         "researcher_profile": profile,
         "researcher_profile_view": profile_view(profile),
         "attachments_ready": required_attachments_ready(),
+        "portfolio_input_status": load_research_portfolio_text_status(),
     }
 
 
