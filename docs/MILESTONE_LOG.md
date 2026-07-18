@@ -34,6 +34,7 @@ This log records completed implementation milestones. Detailed behavior changes 
 - Phase 3.4 - paper selection gate: candidate publication rows now show ranking evidence, authorship position, central-role signal, fit score, full-text availability, and warnings. Publication PDF retrieval and publication-linked analysis are blocked until the user explicitly approves the paper.
 - Phase 3.5 - publication workflow repair: `/publications` now shows saved candidates before publications exist, exposes a clear per-candidate `Fetch Publications` action, and has an end-to-end MIT Physics regression covering directory approval, Kevin Burdge save, OpenAlex/Crossref retrieval, persistence, and publication rendering.
 - Phase 3.6 - OpenAlex author confirmation: ambiguous author matches now render a normal ranked HTML selection page instead of JSON, store the chosen OpenAlex author ID on the candidate, and retry publication retrieval immediately after confirmation.
+- Phase 3.7 - publication-selection continuation: author confirmation now continues directly into publication retrieval, records which OpenAlex author produced the imported papers, skips duplicate retrieval when papers already exist for that author, and redirects to a dedicated publication-selection page.
 
 ## Phase 4
 

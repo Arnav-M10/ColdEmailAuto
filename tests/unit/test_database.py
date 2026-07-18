@@ -55,3 +55,16 @@ def test_database_initializes_candidate_openalex_author_storage() -> None:
         }
 
     assert "openalex_author_id" in columns
+
+
+def test_database_initializes_authorship_openalex_author_storage() -> None:
+    engine = create_engine_for_url("sqlite:///:memory:")
+    initialize_database(engine)
+
+    with engine.begin() as connection:
+        columns = {
+            row[1]
+            for row in connection.exec_driver_sql("PRAGMA table_info(authorships)").fetchall()
+        }
+
+    assert "openalex_author_id" in columns

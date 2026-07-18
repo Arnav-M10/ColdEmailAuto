@@ -815,6 +815,24 @@ def assert_publication_selected_for_retrieval(
         raise ValueError("Approve this paper before PDF retrieval or analysis.")
 
 
+def candidate_has_publications_for_openalex_author(
+    session: Session,
+    *,
+    candidate_id: int,
+    openalex_author_id: str,
+) -> bool:
+    normalized_author_id = normalize_openalex_author_id(openalex_author_id)
+    return (
+        session.scalars(
+            select(Authorship.id).where(
+                Authorship.candidate_id == candidate_id,
+                Authorship.openalex_author_id == normalized_author_id,
+            ),
+        ).first()
+        is not None
+    )
+
+
 def full_text_label(publication: Publication) -> str:
     if publication.pdf_url and publication.arxiv_id:
         return "PDF URL and arXiv available"
@@ -899,6 +917,7 @@ def retrieve_recent_publications_for_candidate(
             candidate=candidate,
             metadata=metadata,
         )
+        authorship.openalex_author_id = author.openalex_id
         session.flush()
         authorship_ids.add(authorship.id)
         if authorship.match_status == "REVIEW_REQUIRED":

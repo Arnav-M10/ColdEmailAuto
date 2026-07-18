@@ -33,4 +33,5 @@ All notable project changes will be documented here.
 - Provider-based AI architecture with Gemini default, centralized settings, structured validation, and explicit no-fake-output failures.
 - Publications page now shows saved candidates with a visible `Fetch Publications` action before imported papers exist.
 - Ambiguous OpenAlex author matches now show a ranked HTML confirmation workflow, persist the selected author ID, and retry publication retrieval after confirmation.
+- OpenAlex author confirmation now lands on the publication-selection page and skips duplicate retrieval when papers already exist for the confirmed author.
 - Rich local paper analysis fields, text-quality metadata, deterministic evidence extraction, and stricter draft approval gates.

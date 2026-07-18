@@ -913,6 +913,8 @@ def test_mit_kevin_burdge_openalex_author_confirmation_fetches_publications(
     publication_hub = client.get("/publications")
 
     assert confirmed.status_code == 200
+    assert str(confirmed.url).endswith("/candidates/1/publications/select")
+    assert "Select Publication" in confirmed.text
     assert "Compact Binary Discovery in Time-Domain Surveys" in confirmed.text
     assert "Compact Binary Discovery in Time-Domain Surveys" in publication_hub.text
     assert "works:https://openalex.org/A123456:2021" in openalex_calls
@@ -922,6 +924,8 @@ def test_mit_kevin_burdge_openalex_author_confirmation_fetches_publications(
         stored = session.get(Candidate, 1)
         assert stored is not None
         assert stored.openalex_author_id == "https://openalex.org/A123456"
+        stored_authorship = session.scalars(select(Authorship)).one()
+        assert stored_authorship.openalex_author_id == "https://openalex.org/A123456"
 
     openalex_calls.clear()
     refetched = client.post(
@@ -931,9 +935,11 @@ def test_mit_kevin_burdge_openalex_author_confirmation_fetches_publications(
     )
 
     assert refetched.status_code == 200
+    assert str(refetched.url).endswith("/candidates/1/publications/select")
     assert "Confirm OpenAlex Author" not in refetched.text
+    assert "Compact Binary Discovery in Time-Domain Surveys" in refetched.text
     assert "author:1:Kevin Burdge" not in openalex_calls
-    assert "works:https://openalex.org/A123456:2021" in openalex_calls
+    assert "works:https://openalex.org/A123456:2021" not in openalex_calls
 
 
 def test_discovery_exclusion_requires_manual_override(

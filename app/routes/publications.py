@@ -14,6 +14,8 @@ from app.services.metadata import (
     OpenAlexAuthorCandidate,
     approve_publication_for_retrieval,
     assert_publication_selected_for_retrieval,
+    candidate_has_publications_for_openalex_author,
+    list_candidate_publication_reviews,
     list_candidate_publications,
     list_openalex_author_candidates_for_candidate,
     list_publications,
@@ -26,6 +28,7 @@ from app.services.retrieval import retrieve_publication_pdf
 
 router = APIRouter()
 MIN_CONFIDENT_AUTHOR_SCORE = 0.75
+PUBLICATION_SELECTION_PATH = "/candidates/{candidate_id}/publications/select"
 
 
 def render(request: Request, template_name: str, context: dict[str, object]) -> HTMLResponse:
@@ -61,6 +64,10 @@ def render_author_selection(
     )
 
 
+def publication_selection_url(candidate_id: int) -> str:
+    return PUBLICATION_SELECTION_PATH.format(candidate_id=candidate_id)
+
+
 @router.get("/publications", response_class=HTMLResponse)
 def publications_index(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
     candidates = list_candidates(db)
@@ -79,6 +86,28 @@ def publications_index(request: Request, db: Session = Depends(get_db)) -> HTMLR
             "page_title": "Publications",
             "candidate_rows": candidate_rows,
             "publications": list_publications(db),
+            "csrf_token": csrf_token(),
+        },
+    )
+
+
+@router.get("/candidates/{candidate_id}/publications/select", response_class=HTMLResponse)
+def candidate_publication_selection(
+    request: Request,
+    candidate_id: int,
+    db: Session = Depends(get_db),
+) -> HTMLResponse:
+    candidate = get_candidate(db, candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=404)
+    return render(
+        request,
+        "publication_selection.html",
+        {
+            "active_page": "publications",
+            "page_title": "Select Publication",
+            "candidate": candidate,
+            "publication_reviews": list_candidate_publication_reviews(db, candidate_id),
             "csrf_token": csrf_token(),
         },
     )
@@ -118,7 +147,7 @@ def candidate_add_manual_publication(
     )
     upsert_publication_with_authorship(db, candidate=candidate, metadata=metadata)
     db.commit()
-    return RedirectResponse(f"/candidates/{candidate_id}", status_code=303)
+    return RedirectResponse(publication_selection_url(candidate_id), status_code=303)
 
 
 @router.post("/candidates/{candidate_id}/publications/retrieve-live")
@@ -137,11 +166,16 @@ def candidate_retrieve_live_publications(
     if confirmed_author_id:
         try:
             candidate.openalex_author_id = normalize_openalex_author_id(confirmed_author_id)
-            retrieve_recent_publications_for_candidate(
+            if not candidate_has_publications_for_openalex_author(
                 db,
-                candidate=candidate,
-                confirmed_openalex_author_id=candidate.openalex_author_id,
-            )
+                candidate_id=candidate_id,
+                openalex_author_id=candidate.openalex_author_id,
+            ):
+                retrieve_recent_publications_for_candidate(
+                    db,
+                    candidate=candidate,
+                    confirmed_openalex_author_id=candidate.openalex_author_id,
+                )
         except ValueError as exc:
             return render_author_selection(
                 request,
@@ -150,7 +184,13 @@ def candidate_retrieve_live_publications(
                 error_message=str(exc),
             )
         db.commit()
-        return RedirectResponse(f"/candidates/{candidate_id}", status_code=303)
+        return RedirectResponse(publication_selection_url(candidate_id), status_code=303)
+    if candidate.openalex_author_id and candidate_has_publications_for_openalex_author(
+        db,
+        candidate_id=candidate_id,
+        openalex_author_id=candidate.openalex_author_id,
+    ):
+        return RedirectResponse(publication_selection_url(candidate_id), status_code=303)
     if not candidate.openalex_author_id:
         try:
             author_candidates = list_openalex_author_candidates_for_candidate(candidate)
@@ -184,7 +224,7 @@ def candidate_retrieve_live_publications(
             error_message=str(exc),
         )
     db.commit()
-    return RedirectResponse(f"/candidates/{candidate_id}", status_code=303)
+    return RedirectResponse(publication_selection_url(candidate_id), status_code=303)
 
 
 @router.post("/candidates/{candidate_id}/publications/openalex-author/confirm")
@@ -201,11 +241,16 @@ def candidate_confirm_openalex_author(
         raise HTTPException(status_code=404)
     try:
         candidate.openalex_author_id = normalize_openalex_author_id(selected_openalex_author_id)
-        retrieve_recent_publications_for_candidate(
+        if not candidate_has_publications_for_openalex_author(
             db,
-            candidate=candidate,
-            confirmed_openalex_author_id=candidate.openalex_author_id,
-        )
+            candidate_id=candidate_id,
+            openalex_author_id=candidate.openalex_author_id,
+        ):
+            retrieve_recent_publications_for_candidate(
+                db,
+                candidate=candidate,
+                confirmed_openalex_author_id=candidate.openalex_author_id,
+            )
     except ValueError as exc:
         return render_author_selection(
             request,
@@ -214,7 +259,7 @@ def candidate_confirm_openalex_author(
             error_message=str(exc),
         )
     db.commit()
-    return RedirectResponse(f"/candidates/{candidate_id}", status_code=303)
+    return RedirectResponse(publication_selection_url(candidate_id), status_code=303)
 
 
 @router.post("/candidates/{candidate_id}/publications/openalex-author/reset")
@@ -255,7 +300,7 @@ def candidate_approve_publication_for_retrieval(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     db.commit()
-    return RedirectResponse(f"/candidates/{candidate_id}", status_code=303)
+    return RedirectResponse(publication_selection_url(candidate_id), status_code=303)
 
 
 @router.post("/candidates/{candidate_id}/publications/{publication_id}/retrieve")

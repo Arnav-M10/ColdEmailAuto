@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <h2>Select Publication</h2>
+        <p>Review imported papers for {{ candidate.full_name }} and approve the best fit before PDF retrieval or analysis.</p>
+      </div>
+      <span class="status-pill">{{ publication_reviews|length }} papers</span>
+    </div>
+
+    {% if candidate.openalex_author_id %}
+      <div class="asset-row">
+        <div>
+          <strong>Confirmed OpenAlex author</strong>
+          <span>{{ candidate.openalex_author_id }}</span>
+        </div>
+        <a class="text-link" href="/candidates/{{ candidate.id }}">Candidate details</a>
+      </div>
+    {% endif %}
+
+    {% if publication_reviews %}
+      {% include "partials/publication_review_table.html" %}
+    {% else %}
+      <div class="empty-state">
+        <h3>No publications imported yet</h3>
+        <p>Use Fetch Publications from the Publications page or candidate detail.</p>
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

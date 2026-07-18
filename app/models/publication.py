@@ -40,6 +40,7 @@ class Authorship(Base, TimestampMixin):
     publication_id: Mapped[int] = mapped_column(ForeignKey("publications.id"), nullable=False)
     author_position: Mapped[int | None] = mapped_column(Integer, nullable=True)
     author_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    openalex_author_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
     role: Mapped[str | None] = mapped_column(String(80), nullable=True)
     identity_confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     match_status: Mapped[str] = mapped_column(String(40), nullable=False, default="REVIEW_REQUIRED")
