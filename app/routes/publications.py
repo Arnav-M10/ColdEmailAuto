@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from typing import cast
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session
 
@@ -29,6 +29,12 @@ from app.services.retrieval import retrieve_publication_pdf
 router = APIRouter()
 MIN_CONFIDENT_AUTHOR_SCORE = 0.75
 PUBLICATION_SELECTION_PATH = "/candidates/{candidate_id}/publications/select"
+PUBLICATION_SORT_OPTIONS = {
+    "best": "Best outreach match",
+    "newest": "Newest",
+    "citations": "Highest citation count",
+    "fewest_authors": "Fewest authors",
+}
 
 
 def render(request: Request, template_name: str, context: dict[str, object]) -> HTMLResponse:
@@ -95,11 +101,13 @@ def publications_index(request: Request, db: Session = Depends(get_db)) -> HTMLR
 def candidate_publication_selection(
     request: Request,
     candidate_id: int,
+    sort: str = Query("best"),
     db: Session = Depends(get_db),
 ) -> HTMLResponse:
     candidate = get_candidate(db, candidate_id)
     if candidate is None:
         raise HTTPException(status_code=404)
+    selected_sort = sort if sort in PUBLICATION_SORT_OPTIONS else "best"
     return render(
         request,
         "publication_selection.html",
@@ -107,7 +115,13 @@ def candidate_publication_selection(
             "active_page": "publications",
             "page_title": "Select Publication",
             "candidate": candidate,
-            "publication_reviews": list_candidate_publication_reviews(db, candidate_id),
+            "publication_reviews": list_candidate_publication_reviews(
+                db,
+                candidate_id,
+                sort=selected_sort,
+            ),
+            "sort_options": PUBLICATION_SORT_OPTIONS,
+            "selected_sort": selected_sort,
             "csrf_token": csrf_token(),
         },
     )

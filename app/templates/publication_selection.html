@@ -20,6 +20,17 @@
       </div>
     {% endif %}
 
+    <form class="inline-form sort-form" method="get" action="/candidates/{{ candidate.id }}/publications/select">
+      <label>Sort by
+        <select name="sort">
+          {% for value, label in sort_options.items() %}
+            <option value="{{ value }}" {% if value == selected_sort %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button type="submit">Apply</button>
+    </form>
+
     {% if publication_reviews %}
       {% include "partials/publication_review_table.html" %}
     {% else %}

@@ -70,3 +70,18 @@ def test_database_initializes_authorship_openalex_author_storage() -> None:
     assert "openalex_author_id" in columns
     assert "confirmed_author_present" in columns
     assert "corresponding_author" in columns
+    assert "score_details_json" in columns
+
+
+def test_database_initializes_publication_ranking_storage() -> None:
+    engine = create_engine_for_url("sqlite:///:memory:")
+    initialize_database(engine)
+
+    with engine.begin() as connection:
+        columns = {
+            row[1]
+            for row in connection.exec_driver_sql("PRAGMA table_info(publications)").fetchall()
+        }
+
+    assert "citation_count" in columns
+    assert "work_type" in columns

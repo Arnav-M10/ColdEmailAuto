@@ -416,6 +416,7 @@ def test_confirmed_openalex_author_id_sets_authorship_without_name_match(
             candidate=candidate,
             metadata=metadata,
             confirmed_openalex_author_id="https://openalex.org/A123456",
+            portfolio_text="compact binary time-domain astrophysics surveys stellar dynamics",
         )
         session.commit()
 
@@ -433,6 +434,112 @@ def test_confirmed_openalex_author_id_sets_authorship_without_name_match(
     assert stored.identity_confidence == 0.95
     assert stored.score >= 80
     assert "Candidate name was not found in the author list." not in warnings
+
+
+def test_publication_ranking_prefers_portfolio_similarity_and_supports_sort_modes(
+    tmp_path: Path,
+) -> None:
+    engine = create_engine_for_url(f"sqlite:///{tmp_path / 'test.db'}")
+    initialize_database(engine)
+    portfolio_text = (
+        "My research portfolio focuses on compact binary astrophysics, time-domain surveys, "
+        "gravitational waves, stellar dynamics, and astronomical data analysis."
+    )
+
+    with Session(engine) as session:
+        candidate = create_candidate(
+            session,
+            full_name="Kevin Burdge",
+            title="Assistant Professor",
+            institution="MIT",
+            department="Physics",
+            research_area="compact binaries",
+            official_profile_url=None,
+            notes=None,
+        )
+        for metadata in [
+            PublicationMetadata(
+                title="Compact Binary Discovery in Time-Domain Astrophysics Surveys",
+                year=2024,
+                venue="Astrophysics Journal",
+                doi="10.1000/best",
+                arxiv_id="2401.00001",
+                openalex_id="https://openalex.org/WBEST",
+                source="openalex",
+                open_access_url="https://arxiv.org/abs/2401.00001",
+                pdf_url="https://arxiv.org/pdf/2401.00001",
+                authors=["Kevin Burdge", "Collaborator"],
+                author_institutions=["Massachusetts Institute of Technology"],
+                raw={},
+                citation_count=8,
+                work_type="article",
+                topics=["Compact binaries", "Time-domain astronomy"],
+                author_openalex_ids=["https://openalex.org/A123", "https://openalex.org/A999"],
+            ),
+            PublicationMetadata(
+                title="Highly Cited Quantum Materials Measurement",
+                year=2026,
+                venue="Materials Journal",
+                doi="10.1000/cited",
+                arxiv_id=None,
+                openalex_id="https://openalex.org/WCITED",
+                source="openalex",
+                open_access_url=None,
+                pdf_url=None,
+                authors=["Kevin Burdge", "Collaborator", "Third Person", "Fourth Person"],
+                author_institutions=["Massachusetts Institute of Technology"],
+                raw={},
+                citation_count=500,
+                work_type="article",
+                topics=["Quantum materials"],
+                author_openalex_ids=[
+                    "https://openalex.org/A123",
+                    "https://openalex.org/A2",
+                    "https://openalex.org/A3",
+                    "https://openalex.org/A4",
+                ],
+            ),
+            PublicationMetadata(
+                title="Single Author Instrument Note",
+                year=2023,
+                venue="Instrumentation Notes",
+                doi="10.1000/fewest",
+                arxiv_id=None,
+                openalex_id="https://openalex.org/WFEWEST",
+                source="openalex",
+                open_access_url=None,
+                pdf_url=None,
+                authors=["Kevin Burdge"],
+                author_institutions=["Massachusetts Institute of Technology"],
+                raw={},
+                citation_count=1,
+                work_type="review",
+                topics=["Instrumentation"],
+                author_openalex_ids=["https://openalex.org/A123"],
+            ),
+        ]:
+            upsert_publication_with_authorship(
+                session,
+                candidate=candidate,
+                metadata=metadata,
+                confirmed_openalex_author_id="https://openalex.org/A123",
+                portfolio_text=portfolio_text,
+            )
+        session.commit()
+
+        best = list_candidate_publications(session, candidate.id, sort="best")
+        newest = list_candidate_publications(session, candidate.id, sort="newest")
+        citations = list_candidate_publications(session, candidate.id, sort="citations")
+        fewest = list_candidate_publications(session, candidate.id, sort="fewest_authors")
+        best_details = json.loads(best[0][0].score_details_json)
+
+    assert best[0][1].title == "Compact Binary Discovery in Time-Domain Astrophysics Surveys"
+    assert newest[0][1].title == "Highly Cited Quantum Materials Measurement"
+    assert citations[0][1].title == "Highly Cited Quantum Materials Measurement"
+    assert fewest[0][1].title == "Single Author Instrument Note"
+    assert best[0][0].score > citations[0][0].score
+    assert best_details["components"]["portfolio_similarity"] > 0
+    assert any("Portfolio similarity matched" in reason for reason in best_details["reasons"])
 
 
 def test_publication_upsert_links_authorship_once(tmp_path: Path) -> None:

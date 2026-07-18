@@ -5,7 +5,7 @@
         <tr>
           <th>Paper</th>
           <th>Authorship</th>
-          <th>Fit</th>
+          <th>Overall Score</th>
           <th>Full Text</th>
           <th>Risks</th>
           <th>Decision</th>
@@ -41,6 +41,20 @@
             <td>
               <strong>{{ "%.0f"|format(review.authorship.score) }}</strong>
               <span class="meta-line">{{ review.authorship.connection_summary or "No match summary recorded." }}</span>
+              {% if review.score_reasons %}
+                <ul class="reason-list compact-list">
+                  {% for reason in review.score_reasons %}
+                    <li>{{ reason }}</li>
+                  {% endfor %}
+                </ul>
+              {% endif %}
+              {% if review.score_components %}
+                <dl class="score-breakdown">
+                  {% for key, value in review.score_components.items() %}
+                    <div><dt>{{ key|replace("_", " ")|title }}</dt><dd>{{ "%.1f"|format(value) }}</dd></div>
+                  {% endfor %}
+                </dl>
+              {% endif %}
             </td>
             <td>
               <span class="status-chip {% if review.full_text_available %}ok{% else %}attention{% endif %}">

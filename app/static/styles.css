@@ -488,6 +488,10 @@ th {
   max-width: 180px;
 }
 
+.sort-form {
+  margin: 16px 0;
+}
+
 .author-option-list {
   display: grid;
   gap: 14px;
@@ -634,6 +638,25 @@ th {
 
 .publication-review-table {
   min-width: 1040px;
+}
+
+.score-breakdown {
+  display: grid;
+  gap: 4px;
+  margin: 10px 0 0;
+}
+
+.score-breakdown div {
+  display: grid;
+  grid-template-columns: minmax(130px, 1fr) auto;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.score-breakdown dt,
+.score-breakdown dd {
+  margin: 0;
 }
 
 .paper-title,

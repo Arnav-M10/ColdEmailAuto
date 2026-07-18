@@ -22,6 +22,8 @@ class Publication(Base, TimestampMixin):
     open_access_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     pdf_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     author_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    citation_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    work_type: Mapped[str | None] = mapped_column(String(80), nullable=True)
     metadata_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
 
 
@@ -49,6 +51,7 @@ class Authorship(Base, TimestampMixin):
     score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     connection_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     warnings_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    score_details_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     selected_for_retrieval: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     selected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     selection_notes: Mapped[str | None] = mapped_column(Text, nullable=True)

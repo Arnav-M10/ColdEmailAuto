@@ -35,4 +35,5 @@ All notable project changes will be documented here.
 - Ambiguous OpenAlex author matches now show a ranked HTML confirmation workflow, persist the selected author ID, and retry publication retrieval after confirmation.
 - OpenAlex author confirmation now lands on the publication-selection page and skips duplicate retrieval when papers already exist for the confirmed author.
 - OpenAlex publication imports now attribute confirmed authors by OpenAlex author ID, including author position, corresponding-author status, and warning suppression when the confirmed author appears in the returned authorships.
+- Publication selection now defaults to an explainable outreach score using portfolio similarity, author role, author count, recency, lawful PDF availability, review status, and citations, with alternate sort modes.
 - Rich local paper analysis fields, text-quality metadata, deterministic evidence extraction, and stricter draft approval gates.

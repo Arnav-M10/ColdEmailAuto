@@ -839,6 +839,9 @@ def test_mit_kevin_burdge_openalex_author_confirmation_fetches_publications(
                     authors=["K. Burdge", "Collaborator"],
                     author_institutions=["Massachusetts Institute of Technology"],
                     raw={"_retrieval": {"source_url": "https://api.openalex.org/works"}},
+                    citation_count=12,
+                    work_type="review",
+                    topics=["Compact binaries", "Time-domain astrophysics"],
                     author_openalex_ids=[
                         "https://openalex.org/A123456",
                         "https://openalex.org/A999999",
@@ -855,6 +858,10 @@ def test_mit_kevin_burdge_openalex_author_confirmation_fetches_publications(
     monkeypatch.setattr("app.routes.discovery.SafeFetcher", FakeFetcher)
     monkeypatch.setattr("app.services.metadata.OpenAlexClient", FakeOpenAlexClient)
     monkeypatch.setattr("app.services.metadata.CrossrefClient", FakeCrossrefClient)
+    monkeypatch.setattr(
+        "app.services.metadata.load_research_portfolio_text",
+        lambda: "compact binaries time-domain astrophysics stellar dynamics survey analysis",
+    )
     client, session_factory = build_test_context(tmp_path)
 
     resolved = client.post(
@@ -924,6 +931,10 @@ def test_mit_kevin_burdge_openalex_author_confirmation_fetches_publications(
     assert "Position 1" in confirmed.text
     assert "Confirmed author: present" in confirmed.text
     assert "Corresponding author" in confirmed.text
+    assert "Overall Score" in confirmed.text
+    assert "Portfolio similarity matched" in confirmed.text
+    assert "Review article bonus applied." in confirmed.text
+    assert "Citation count: 12." in confirmed.text
     assert "Compact Binary Discovery in Time-Domain Surveys" in publication_hub.text
     assert "works:https://openalex.org/A123456:2021" in openalex_calls
     assert "crossref:10.1000/kevin-confirmed" in openalex_calls

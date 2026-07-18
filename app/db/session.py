@@ -42,6 +42,7 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expi
 def initialize_database(target_engine: Engine = engine) -> None:
     Base.metadata.create_all(bind=target_engine)
     _ensure_candidate_openalex_author_column(target_engine)
+    _ensure_publication_ranking_columns(target_engine)
     _ensure_authorship_openalex_author_column(target_engine)
 
 
@@ -56,6 +57,24 @@ def _ensure_candidate_openalex_author_column(target_engine: Engine) -> None:
         if "openalex_author_id" not in columns:
             connection.exec_driver_sql(
                 "ALTER TABLE candidates ADD COLUMN openalex_author_id VARCHAR(200)",
+            )
+
+
+def _ensure_publication_ranking_columns(target_engine: Engine) -> None:
+    if target_engine.dialect.name != "sqlite":
+        return
+    with target_engine.begin() as connection:
+        columns = {
+            row[1]
+            for row in connection.exec_driver_sql("PRAGMA table_info(publications)").fetchall()
+        }
+        if "citation_count" not in columns:
+            connection.exec_driver_sql(
+                "ALTER TABLE publications ADD COLUMN citation_count INTEGER DEFAULT 0 NOT NULL",
+            )
+        if "work_type" not in columns:
+            connection.exec_driver_sql(
+                "ALTER TABLE publications ADD COLUMN work_type VARCHAR(80)",
             )
 
 
@@ -80,6 +99,10 @@ def _ensure_authorship_openalex_author_column(target_engine: Engine) -> None:
             connection.exec_driver_sql(
                 "ALTER TABLE authorships "
                 "ADD COLUMN corresponding_author BOOLEAN DEFAULT 0 NOT NULL",
+            )
+        if "score_details_json" not in columns:
+            connection.exec_driver_sql(
+                "ALTER TABLE authorships ADD COLUMN score_details_json TEXT DEFAULT '{}' NOT NULL",
             )
 
 

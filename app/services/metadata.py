@@ -2,18 +2,22 @@ import json
 import re
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
+from functools import lru_cache
 from hashlib import sha256
+from math import log10, sqrt
 from pathlib import Path
 from time import monotonic, sleep
 from typing import Any, Protocol
 from urllib.parse import quote, urlencode, urlparse
 
+from pypdf import PdfReader
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.models.candidate import Candidate
 from app.models.publication import Authorship, Publication
+from app.services.assets import PORTFOLIO_PATH
 from app.services.web_safety import SafeFetchError, validate_url
 
 TITLE_WORD_RE = re.compile(r"[a-z0-9]+")
@@ -42,6 +46,10 @@ class PublicationMetadata:
     authors: list[str]
     author_institutions: list[str]
     raw: dict[str, Any]
+    citation_count: int = 0
+    work_type: str | None = None
+    abstract_text: str | None = None
+    topics: list[str] = field(default_factory=list)
     author_openalex_ids: list[str | None] = field(default_factory=list)
     corresponding_author_positions: set[int] = field(default_factory=set)
 
@@ -79,6 +87,8 @@ class PublicationScore:
     score: float
     connection_summary: str
     warnings: list[str]
+    components: dict[str, float]
+    reasons: list[str]
 
 
 @dataclass(frozen=True)
@@ -95,6 +105,8 @@ class CandidatePublicationReview:
     authorship: Authorship
     publication: Publication
     warnings: list[str]
+    score_components: dict[str, float]
+    score_reasons: list[str]
     full_text_label: str
     full_text_available: bool
 
@@ -579,9 +591,44 @@ def parse_openalex_work(item: dict[str, Any]) -> PublicationMetadata:
         authors=authors,
         author_institutions=sorted(set(institutions)),
         raw=item,
+        citation_count=int_value(item.get("cited_by_count")),
+        work_type=item.get("type") if isinstance(item.get("type"), str) else None,
+        abstract_text=parse_openalex_abstract(item.get("abstract_inverted_index")),
+        topics=parse_openalex_work_topics(item),
         author_openalex_ids=author_openalex_ids,
         corresponding_author_positions=corresponding_author_positions,
     )
+
+
+def parse_openalex_abstract(value: object) -> str | None:
+    if not isinstance(value, dict):
+        return None
+    positioned: list[tuple[int, str]] = []
+    for word, positions in value.items():
+        if not isinstance(word, str) or not isinstance(positions, list):
+            continue
+        for position in positions:
+            if isinstance(position, int):
+                positioned.append((position, word))
+    if not positioned:
+        return None
+    return " ".join(word for _position, word in sorted(positioned))
+
+
+def int_value(value: object) -> int:
+    return value if isinstance(value, int) else 0
+
+
+def parse_openalex_work_topics(item: dict[str, Any]) -> list[str]:
+    topics: list[str] = []
+    for key in ("topics", "concepts", "x_concepts"):
+        values = item.get(key, [])
+        if not isinstance(values, list):
+            continue
+        for value in values[:10]:
+            if isinstance(value, dict) and isinstance(value.get("display_name"), str):
+                topics.append(value["display_name"])
+    return sorted(set(topics))
 
 
 def _openalex_venue(item: dict[str, Any]) -> str | None:
@@ -635,6 +682,8 @@ def parse_crossref_work(item: dict[str, Any]) -> PublicationMetadata:
         authors=authors,
         author_institutions=[],
         raw=item,
+        citation_count=int_value(item.get("is-referenced-by-count")),
+        work_type=item.get("type") if isinstance(item.get("type"), str) else None,
     )
 
 
@@ -722,35 +771,196 @@ def score_publication_for_candidate(
     candidate: Candidate,
     metadata: PublicationMetadata,
     match: AuthorIdentityMatch,
+    *,
+    portfolio_text: str | None = None,
 ) -> PublicationScore:
-    text = f"{metadata.title} {candidate.research_area or ''}".lower()
-    overlap_terms = [term for term in candidate_terms(candidate) if term in text]
+    profile_text = portfolio_text if portfolio_text is not None else load_research_portfolio_text()
+    similarity, overlap_terms = semantic_similarity_to_portfolio(metadata, profile_text)
     score = 0.0
     warnings = list(match.warnings)
-    if metadata.year and metadata.year >= RECENT_YEAR_THRESHOLD:
-        score += 20
+    reasons: list[str] = []
+    components: dict[str, float] = {}
+
+    semantic_points = round(similarity * 45, 2)
+    components["portfolio_similarity"] = semantic_points
+    score += semantic_points
+    if overlap_terms:
+        reasons.append(
+            f"Portfolio similarity matched: {', '.join(overlap_terms[:8])}.",
+        )
+    elif profile_text.strip():
+        warnings.append("No strong semantic overlap with the research portfolio.")
+        reasons.append("No strong portfolio term overlap was detected.")
     else:
-        warnings.append("Publication is outside the default recent-paper window.")
-    if match.author_position == 1:
-        score += 25
+        warnings.append("Research portfolio text was unavailable for similarity scoring.")
+        reasons.append(
+            "Portfolio similarity could not be scored because portfolio text was unavailable.",
+        )
+
+    role_points = role_score(match)
+    components["confirmed_author_role"] = role_points
+    score += role_points
+    if match.is_corresponding:
+        reasons.append("Confirmed author is marked as corresponding author.")
+    elif match.author_position == 1:
+        reasons.append("Confirmed author is first author.")
     elif match.author_position == match.author_count and match.author_count > 1:
-        score += 18
+        reasons.append("Confirmed author is last author.")
     elif match.author_position:
-        score += 10
-    score += min(30, len(overlap_terms) * 10)
+        reasons.append(f"Confirmed author appears at position {match.author_position}.")
+    else:
+        reasons.append("Confirmed author position is unknown.")
+
+    author_points = author_count_score(match.author_count)
+    components["author_count"] = author_points
+    score += author_points
+    if match.author_count:
+        reasons.append(f"Author count: {match.author_count}.")
+
+    if metadata.year and metadata.year >= RECENT_YEAR_THRESHOLD:
+        recency_points = recency_score(metadata.year)
+        reasons.append(f"Recent publication from {metadata.year}.")
+    else:
+        recency_points = 0.0
+        warnings.append("Publication is outside the default recent-paper window.")
+    components["recency"] = recency_points
+    score += recency_points
+
     if metadata.pdf_url or metadata.open_access_url:
-        score += 15
+        pdf_points = 7.0
+        reasons.append("Lawful full text or open-access page is available.")
+    else:
+        pdf_points = 0.0
+    components["lawful_pdf_availability"] = pdf_points
+    score += pdf_points
+
+    if is_review_article(metadata):
+        review_points = 5.0
+        reasons.append("Review article bonus applied.")
+    else:
+        review_points = 0.0
+    components["review_article_bonus"] = review_points
+    score += review_points
+
+    citation_points = citation_score(metadata.citation_count)
+    components["citation_count"] = citation_points
+    score += citation_points
+    if metadata.citation_count:
+        reasons.append(f"Citation count: {metadata.citation_count}.")
+
     if match.confidence >= 0.8:
-        score += 10
-    if not overlap_terms:
-        warnings.append("No strong text overlap with the candidate research area.")
-    connection = ", ".join(overlap_terms) if overlap_terms else "Needs manual review"
-    return PublicationScore(score=score, connection_summary=connection, warnings=warnings)
+        components["confirmed_author_confidence"] = 3.0
+        score += 3.0
+    else:
+        components["confirmed_author_confidence"] = 0.0
+    connection = ", ".join(overlap_terms[:8]) if overlap_terms else "Needs manual review"
+    return PublicationScore(
+        score=round(score, 2),
+        connection_summary=connection,
+        warnings=warnings,
+        components=components,
+        reasons=reasons,
+    )
 
 
-def candidate_terms(candidate: Candidate) -> set[str]:
-    text = f"{candidate.research_area or ''} {candidate.notes or ''}".lower()
-    return {word for word in TITLE_WORD_RE.findall(text) if len(word) > 4}
+def role_score(match: AuthorIdentityMatch) -> float:
+    if match.is_corresponding:
+        return 20.0
+    if match.author_position == 1:
+        return 16.0
+    if match.author_position == match.author_count and match.author_count > 1:
+        return 14.0
+    if match.author_position:
+        return 8.0
+    return 0.0
+
+
+def author_count_score(author_count: int) -> float:
+    if author_count <= 0:
+        return 0.0
+    if author_count <= 3:
+        return 10.0
+    if author_count <= 8:
+        return 7.0
+    if author_count <= 20:
+        return 4.0
+    return 1.0
+
+
+def recency_score(year: int | None) -> float:
+    if year is None:
+        return 0.0
+    if year >= 2025:
+        return 8.0
+    if year >= 2023:
+        return 6.0
+    if year >= RECENT_YEAR_THRESHOLD:
+        return 4.0
+    return 0.0
+
+
+def citation_score(citation_count: int) -> float:
+    if citation_count <= 0:
+        return 0.0
+    return round(min(5.0, log10(citation_count + 1) * 1.8), 2)
+
+
+def is_review_article(metadata: PublicationMetadata) -> bool:
+    work_type = (metadata.work_type or "").lower()
+    title = metadata.title.lower()
+    return work_type == "review" or "review" in title or "survey" in title
+
+
+@lru_cache(maxsize=1)
+def load_research_portfolio_text() -> str:
+    path = get_settings().project_root / PORTFOLIO_PATH
+    if not path.exists():
+        return ""
+    try:
+        reader = PdfReader(path)
+        return "\n".join(page.extract_text() or "" for page in reader.pages)
+    except Exception:
+        return ""
+
+
+def semantic_similarity_to_portfolio(
+    metadata: PublicationMetadata,
+    portfolio_text: str,
+) -> tuple[float, list[str]]:
+    publication_text = " ".join(
+        [
+            metadata.title,
+            metadata.abstract_text or "",
+            " ".join(metadata.topics),
+            metadata.venue or "",
+        ],
+    )
+    publication_weights = term_weights(publication_text)
+    portfolio_weights = term_weights(portfolio_text)
+    if not publication_weights or not portfolio_weights:
+        return 0.0, []
+    shared = sorted(
+        set(publication_weights) & set(portfolio_weights),
+        key=lambda term: publication_weights[term] + portfolio_weights[term],
+        reverse=True,
+    )
+    dot = sum(publication_weights[term] * portfolio_weights[term] for term in shared)
+    publication_norm = sqrt(sum(value * value for value in publication_weights.values()))
+    portfolio_norm = sqrt(sum(value * value for value in portfolio_weights.values()))
+    if publication_norm == 0 or portfolio_norm == 0:
+        return 0.0, []
+    return min(1.0, dot / (publication_norm * portfolio_norm)), shared
+
+
+def term_weights(text: str) -> dict[str, float]:
+    weights: dict[str, float] = {}
+    for word in TITLE_WORD_RE.findall(text.lower()):
+        if len(word) <= 4:
+            continue
+        if word in {"paper", "using", "based", "study", "analysis", "research", "model"}:
+            continue
+        weights[word] = weights.get(word, 0.0) + 1.0
+    return weights
 
 
 def upsert_publication_with_authorship(
@@ -759,6 +969,7 @@ def upsert_publication_with_authorship(
     candidate: Candidate,
     metadata: PublicationMetadata,
     confirmed_openalex_author_id: str | None = None,
+    portfolio_text: str | None = None,
 ) -> tuple[Publication, Authorship]:
     fingerprint = title_fingerprint(metadata.title)
     metadata_author_count = max(len(metadata.authors), len(metadata.author_openalex_ids))
@@ -785,16 +996,27 @@ def upsert_publication_with_authorship(
             open_access_url=metadata.open_access_url,
             pdf_url=metadata.pdf_url,
             author_count=metadata_author_count or None,
+            citation_count=metadata.citation_count,
+            work_type=metadata.work_type,
             metadata_json=json.dumps(metadata.raw),
         )
         session.add(publication)
         session.flush()
+    else:
+        publication.citation_count = max(publication.citation_count, metadata.citation_count)
+        publication.work_type = publication.work_type or metadata.work_type
+        publication.author_count = publication.author_count or metadata_author_count or None
     match = match_candidate_author(
         candidate,
         metadata,
         confirmed_openalex_author_id=confirmed_openalex_author_id,
     )
-    scored = score_publication_for_candidate(candidate, metadata, match)
+    scored = score_publication_for_candidate(
+        candidate,
+        metadata,
+        match,
+        portfolio_text=portfolio_text,
+    )
     authorship = session.scalars(
         select(Authorship).where(
             Authorship.candidate_id == candidate.id,
@@ -820,6 +1042,12 @@ def upsert_publication_with_authorship(
     authorship.score = scored.score
     authorship.connection_summary = scored.connection_summary
     authorship.warnings_json = json.dumps(scored.warnings)
+    authorship.score_details_json = json.dumps(
+        {
+            "components": scored.components,
+            "reasons": scored.reasons,
+        },
+    )
     return publication, authorship
 
 
@@ -967,6 +1195,7 @@ def retrieve_recent_publications_for_candidate(
         crossref_metadata = crossref_client.work_by_doi(metadata.doi) if metadata.doi else None
         merged.append(merge_crossref_confirmation(metadata, crossref_metadata))
     deduped = deduplicate_metadata(merged)
+    portfolio_text = load_research_portfolio_text()
     authorship_ids: set[int] = set()
     review_required_ids: set[int] = set()
     for metadata in deduped:
@@ -975,6 +1204,7 @@ def retrieve_recent_publications_for_candidate(
             candidate=candidate,
             metadata=metadata,
             confirmed_openalex_author_id=author.openalex_id,
+            portfolio_text=portfolio_text,
         )
         session.flush()
         authorship_ids.add(authorship.id)
@@ -1025,34 +1255,75 @@ def manual_publication_metadata(
 def list_candidate_publications(
     session: Session,
     candidate_id: int,
+    *,
+    sort: str = "best",
 ) -> list[tuple[Authorship, Publication]]:
+    order_by = publication_sort_order(sort)
     rows = session.execute(
         select(Authorship, Publication)
         .join(Publication, Publication.id == Authorship.publication_id)
         .where(Authorship.candidate_id == candidate_id)
-        .order_by(
-            Authorship.selected_for_retrieval.desc(),
-            Authorship.score.desc(),
-            Publication.year.desc().nullslast(),
-        ),
+        .order_by(*order_by),
     )
     return [(authorship, publication) for authorship, publication in rows.all()]
+
+
+def publication_sort_order(sort: str) -> list[Any]:
+    base: list[Any] = [Authorship.selected_for_retrieval.desc()]
+    if sort == "newest":
+        return [
+            *base,
+            Publication.year.desc().nullslast(),
+            Authorship.score.desc(),
+        ]
+    if sort == "citations":
+        return [
+            *base,
+            Publication.citation_count.desc(),
+            Authorship.score.desc(),
+        ]
+    if sort == "fewest_authors":
+        return [
+            *base,
+            Authorship.author_count.asc().nullslast(),
+            Authorship.score.desc(),
+        ]
+    return [
+        *base,
+        Authorship.score.desc(),
+        Publication.year.desc().nullslast(),
+    ]
 
 
 def list_candidate_publication_reviews(
     session: Session,
     candidate_id: int,
+    *,
+    sort: str = "best",
 ) -> list[CandidatePublicationReview]:
     reviews: list[CandidatePublicationReview] = []
-    for authorship, publication in list_candidate_publications(session, candidate_id):
+    for authorship, publication in list_candidate_publications(session, candidate_id, sort=sort):
         warnings = json.loads(authorship.warnings_json or "[]")
         if not isinstance(warnings, list):
             warnings = []
+        score_details = json.loads(authorship.score_details_json or "{}")
+        if not isinstance(score_details, dict):
+            score_details = {}
+        raw_components = score_details.get("components", {})
+        components = (
+            {str(key): float(value) for key, value in raw_components.items()}
+            if isinstance(raw_components, dict)
+            else {}
+        )
+        raw_reasons = score_details.get("reasons", [])
+        reasons = [str(reason) for reason in raw_reasons] if isinstance(raw_reasons, list) else []
         reviews.append(
             CandidatePublicationReview(
                 authorship=authorship,
                 publication=publication,
                 warnings=[str(warning) for warning in warnings],
+                score_components=components,
+                score_reasons=reasons,
                 full_text_label=full_text_label(publication),
                 full_text_available=bool(publication.pdf_url or publication.arxiv_id),
             ),
