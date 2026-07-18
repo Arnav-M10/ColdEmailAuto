@@ -32,4 +32,5 @@ All notable project changes will be documented here.
 - Ordered lawful PDF retrieval fallback with approved public full-text host allowlist and duplicate-safe paper storage.
 - Provider-based AI architecture with Gemini default, centralized settings, structured validation, and explicit no-fake-output failures.
 - Publications page now shows saved candidates with a visible `Fetch Publications` action before imported papers exist.
+- Ambiguous OpenAlex author matches now show a ranked HTML confirmation workflow, persist the selected author ID, and retry publication retrieval after confirmation.
 - Rich local paper analysis fields, text-quality metadata, deterministic evidence extraction, and stricter draft approval gates.

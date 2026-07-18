@@ -1,12 +1,12 @@
 import json
 import re
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
 from time import monotonic, sleep
 from typing import Any, Protocol
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlparse
 
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
@@ -60,9 +60,14 @@ class OpenAlexAuthorCandidate:
     orcid: str | None
     institutions: list[str]
     works_count: int
+    recent_works_count: int
     confidence: float
     reasons: list[str]
     raw: dict[str, Any]
+    current_institutions: list[str] = field(default_factory=list)
+    previous_institutions: list[str] = field(default_factory=list)
+    topics: list[str] = field(default_factory=list)
+    profile_url: str | None = None
 
 
 @dataclass(frozen=True)
@@ -176,6 +181,48 @@ def normalize_openalex_author_id(value: str) -> str:
     return f"https://openalex.org/{match.group(1).upper()}"
 
 
+def normalized_words(value: str | None) -> set[str]:
+    return set(TITLE_WORD_RE.findall((value or "").lower()))
+
+
+def significant_words(value: str | None) -> set[str]:
+    ignored = {
+        "and",
+        "at",
+        "department",
+        "for",
+        "in",
+        "institute",
+        "laboratory",
+        "of",
+        "physics",
+        "research",
+        "school",
+        "science",
+        "sciences",
+        "technology",
+        "the",
+        "university",
+    }
+    return {word for word in normalized_words(value) if len(word) > 3 and word not in ignored}
+
+
+def institution_aliases(value: str | None) -> set[str]:
+    aliases = significant_words(value)
+    lowered = (value or "").lower()
+    if "mit" in lowered or "massachusetts institute of technology" in lowered:
+        aliases.update({"mit", "massachusetts"})
+    return aliases
+
+
+def homepage_domain(value: str | None) -> str | None:
+    if not value:
+        return None
+    parsed = urlparse(value)
+    host = parsed.netloc.lower()
+    return host.removeprefix("www.") or None
+
+
 def title_fingerprint(title: str) -> str:
     return " ".join(TITLE_WORD_RE.findall(title.lower()))[:500]
 
@@ -221,11 +268,14 @@ class OpenAlexClient:
         return results if isinstance(results, list) else []
 
     def search_author_candidates(self, candidate: Candidate) -> list[OpenAlexAuthorCandidate]:
-        return [
-            score_openalex_author(candidate, item)
-            for item in self.search_authors(candidate.full_name)
-            if isinstance(item, dict)
-        ]
+        return rank_openalex_author_candidates(
+            candidate,
+            [
+                score_openalex_author(candidate, item)
+                for item in self.search_authors(candidate.full_name)
+                if isinstance(item, dict)
+            ],
+        )
 
     def works_for_author(
         self,
@@ -296,9 +346,28 @@ def with_retrieval(metadata: PublicationMetadata, *, source_url: str) -> Publica
     return replace(metadata, raw=raw)
 
 
+def rank_openalex_author_candidates(
+    candidate: Candidate,
+    author_candidates: list[OpenAlexAuthorCandidate],
+) -> list[OpenAlexAuthorCandidate]:
+    return sorted(
+        author_candidates,
+        key=lambda item: (
+            item.confidence,
+            _topic_overlap_count(candidate, item.topics),
+            item.works_count,
+        ),
+        reverse=True,
+    )
+
+
 def score_openalex_author(candidate: Candidate, item: dict[str, Any]) -> OpenAlexAuthorCandidate:
     display_name = str(item.get("display_name") or "")
-    institutions = parse_openalex_author_institutions(item)
+    current_institutions = parse_openalex_current_institutions(item)
+    previous_institutions = parse_openalex_previous_institutions(item, current_institutions)
+    institutions = sorted(set([*current_institutions, *previous_institutions]))
+    topics = parse_openalex_author_topics(item)
+    profile_url = str(item.get("id") or "") or None
     reasons: list[str] = []
     confidence = 0.0
     if display_name.strip().lower() == candidate.full_name.strip().lower():
@@ -307,15 +376,31 @@ def score_openalex_author(candidate: Candidate, item: dict[str, Any]) -> OpenAle
     elif candidate.full_name.split()[-1].lower() in display_name.lower():
         confidence += 0.2
         reasons.append("Partial author-name match.")
-    if candidate.institution and any(
-        candidate.institution.lower() in institution.lower() for institution in institutions
-    ):
+    if candidate.institution and _institution_matches(candidate.institution, current_institutions):
         confidence += 0.35
+        reasons.append(f"Current affiliation matches {candidate.institution}.")
+    elif candidate.institution and _institution_matches(
+        candidate.institution,
+        previous_institutions,
+    ):
+        confidence += 0.2
         reasons.append(f"Affiliation history includes {candidate.institution}.")
+    if candidate.department and _topic_overlap_count(candidate, [*topics, *institutions]) > 0:
+        confidence += 0.08
+        reasons.append("OpenAlex topics overlap with the candidate department or research area.")
+    elif candidate.research_area and _topic_overlap_count(candidate, topics) > 0:
+        confidence += 0.06
+        reasons.append("OpenAlex topics overlap with the recorded research area.")
+    domain = homepage_domain(candidate.official_profile_url)
+    if domain and _domain_matches_institution(domain, institutions):
+        confidence += 0.05
+        reasons.append(f"Homepage domain {domain} matches the affiliation evidence.")
     if candidate.official_profile_url and "profile" in str(item).lower():
         confidence += 0.05
+        reasons.append("OpenAlex profile metadata contains profile evidence.")
     raw_works_count = item.get("works_count")
     works_count = raw_works_count if isinstance(raw_works_count, int) else 0
+    recent_works_count = parse_openalex_recent_works_count(item)
     if works_count:
         confidence += 0.05
         reasons.append(f"OpenAlex reports {works_count} works.")
@@ -325,27 +410,113 @@ def score_openalex_author(candidate: Candidate, item: dict[str, Any]) -> OpenAle
         orcid=item.get("orcid") if isinstance(item.get("orcid"), str) else None,
         institutions=institutions,
         works_count=works_count,
+        recent_works_count=recent_works_count,
         confidence=min(confidence, 0.95),
         reasons=reasons or ["No strong identity signal."],
         raw=item,
+        current_institutions=current_institutions,
+        previous_institutions=previous_institutions,
+        topics=topics,
+        profile_url=profile_url,
     )
 
 
 def parse_openalex_author_institutions(item: dict[str, Any]) -> list[str]:
+    current = parse_openalex_current_institutions(item)
+    previous = parse_openalex_previous_institutions(item)
+    return sorted(
+        set([*current, *previous]),
+    )
+
+
+def parse_openalex_current_institutions(item: dict[str, Any]) -> list[str]:
     institutions: list[str] = []
-    for key in ("last_known_institutions", "affiliations"):
-        values = item.get(key, [])
-        if not isinstance(values, list):
-            continue
+    values = item.get("last_known_institutions", [])
+    if isinstance(values, list):
+        for value in values:
+            if isinstance(value, dict) and isinstance(value.get("display_name"), str):
+                institutions.append(value["display_name"])
+    return sorted(set(institutions))
+
+
+def parse_openalex_previous_institutions(
+    item: dict[str, Any],
+    current_institutions: list[str] | None = None,
+) -> list[str]:
+    current = set(current_institutions or parse_openalex_current_institutions(item))
+    institutions: list[str] = []
+    values = item.get("affiliations", [])
+    if isinstance(values, list):
         for value in values:
             if not isinstance(value, dict):
                 continue
-            institution = value.get("institution") if key == "affiliations" else value
-            if isinstance(institution, dict):
-                display_name = institution.get("display_name")
-                if isinstance(display_name, str):
-                    institutions.append(display_name)
-    return sorted(set(institutions))
+            institution = value.get("institution")
+            if isinstance(institution, dict) and isinstance(institution.get("display_name"), str):
+                institutions.append(institution["display_name"])
+    return sorted({institution for institution in institutions if institution not in current})
+
+
+def parse_openalex_author_topics(item: dict[str, Any]) -> list[str]:
+    topics: list[str] = []
+    for key in ("topics", "x_concepts"):
+        values = item.get(key, [])
+        if not isinstance(values, list):
+            continue
+        for value in values[:8]:
+            if isinstance(value, dict) and isinstance(value.get("display_name"), str):
+                topics.append(value["display_name"])
+    return sorted(set(topics))
+
+
+def parse_openalex_recent_works_count(item: dict[str, Any]) -> int:
+    counts = item.get("counts_by_year", [])
+    if not isinstance(counts, list):
+        return 0
+    total = 0
+    for count_by_year in counts:
+        if not isinstance(count_by_year, dict):
+            continue
+        year = count_by_year.get("year")
+        works_count = count_by_year.get("works_count")
+        if isinstance(year, int) and year >= RECENT_YEAR_THRESHOLD and isinstance(works_count, int):
+            total += works_count
+    return total
+
+
+def _institution_matches(candidate_institution: str, openalex_institutions: list[str]) -> bool:
+    aliases = institution_aliases(candidate_institution)
+    if not aliases:
+        return False
+    for institution in openalex_institutions:
+        institution_words = institution_aliases(institution)
+        if aliases & institution_words:
+            return True
+        if candidate_institution.lower() in institution.lower():
+            return True
+    return False
+
+
+def _domain_matches_institution(domain: str, institutions: list[str]) -> bool:
+    if domain.endswith("mit.edu") and any(
+        "massachusetts institute of technology" in institution.lower()
+        or "mit" in institution_aliases(institution)
+        for institution in institutions
+    ):
+        return True
+    domain_words = significant_words(domain.replace(".", " "))
+    return any(domain_words & institution_aliases(institution) for institution in institutions)
+
+
+def _topic_overlap_count(candidate: Candidate, topics: list[str]) -> int:
+    candidate_words = significant_words(candidate.department) | significant_words(
+        candidate.research_area,
+    )
+    if not candidate_words:
+        return 0
+    topic_words: set[str] = set()
+    for topic in topics:
+        topic_words.update(significant_words(topic))
+    return len(candidate_words & topic_words)
 
 
 def parse_openalex_work(item: dict[str, Any]) -> PublicationMetadata:
@@ -656,6 +827,18 @@ def full_text_label(publication: Publication) -> str:
     return "No lawful full text recorded"
 
 
+def list_openalex_author_candidates_for_candidate(
+    candidate: Candidate,
+    *,
+    openalex: OpenAlexClient | None = None,
+) -> list[OpenAlexAuthorCandidate]:
+    openalex_client = openalex or OpenAlexClient()
+    return rank_openalex_author_candidates(
+        candidate,
+        openalex_client.search_author_candidates(candidate),
+    )
+
+
 def retrieve_recent_publications_for_candidate(
     session: Session,
     *,
@@ -668,26 +851,28 @@ def retrieve_recent_publications_for_candidate(
 ) -> PublicationRetrievalResult:
     openalex_client = openalex or OpenAlexClient()
     crossref_client = crossref or CrossrefClient()
-    if confirmed_openalex_author_id:
+    stored_openalex_author_id = candidate.openalex_author_id
+    selected_openalex_author_id = confirmed_openalex_author_id or stored_openalex_author_id
+    if selected_openalex_author_id:
         author = OpenAlexAuthorCandidate(
-            openalex_id=normalize_openalex_author_id(confirmed_openalex_author_id),
+            openalex_id=normalize_openalex_author_id(selected_openalex_author_id),
             display_name=candidate.full_name,
             orcid=None,
             institutions=[candidate.institution] if candidate.institution else [],
             works_count=0,
+            recent_works_count=0,
             confidence=1.0,
-            reasons=["Manual OpenAlex author ID confirmation supplied by user."],
+            reasons=["Confirmed OpenAlex author ID stored for this candidate."],
             raw={"manual_confirmation": True},
         )
     else:
-        author_candidates = openalex_client.search_author_candidates(candidate)
+        author_candidates = list_openalex_author_candidates_for_candidate(
+            candidate,
+            openalex=openalex_client,
+        )
         if not author_candidates:
             raise ValueError("No OpenAlex author candidates found.")
-        author_candidates = sorted(
-            author_candidates,
-            key=lambda item: item.confidence,
-            reverse=True,
-        )
+        author_candidates = rank_openalex_author_candidates(candidate, author_candidates)
         author = author_candidates[0]
         if not author.openalex_id or author.confidence < min_author_confidence:
             options = "; ".join(

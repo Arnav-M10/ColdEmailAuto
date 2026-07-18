@@ -34,9 +34,23 @@
         <p>Retrieve recent papers from OpenAlex/Crossref or add manual Scholar context without scraping Scholar.</p>
       </div>
     </div>
+    {% if candidate.openalex_author_id %}
+      <div class="asset-row">
+        <div>
+          <strong>Confirmed OpenAlex author</strong>
+          <span>{{ candidate.openalex_author_id }}</span>
+        </div>
+        <form class="inline-form" method="post" action="/candidates/{{ candidate.id }}/publications/openalex-author/reset">
+          <input type="hidden" name="csrf" value="{{ csrf_token }}">
+          <button type="submit">Reset</button>
+        </form>
+      </div>
+    {% endif %}
     <form class="form-grid" method="post" action="/candidates/{{ candidate.id }}/publications/retrieve-live">
       <input type="hidden" name="csrf" value="{{ csrf_token }}">
-      <label class="wide">Confirmed OpenAlex author ID <input name="openalex_author_id" placeholder="Optional, required when identity is uncertain"></label>
+      {% if not candidate.openalex_author_id %}
+        <label class="wide">Known OpenAlex author ID <input name="openalex_author_id" placeholder="Optional"></label>
+      {% endif %}
       <div class="form-actions wide"><button type="submit">Fetch Publications</button></div>
     </form>
     <form class="form-grid" method="post" action="/candidates/{{ candidate.id }}/publications/manual">

@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <h2>Confirm OpenAlex Author</h2>
+        <p>Choose the author profile that belongs to {{ candidate.full_name }} before importing papers.</p>
+      </div>
+      <span class="status-pill">Manual confirmation</span>
+    </div>
+
+    {% if error_message %}
+      <div class="empty-state attention-state">
+        <h3>Publication retrieval needs attention</h3>
+        <p>{{ error_message }}</p>
+      </div>
+    {% endif %}
+
+    {% if author_candidates %}
+      <form method="post" action="/candidates/{{ candidate.id }}/publications/openalex-author/confirm">
+        <input type="hidden" name="csrf" value="{{ csrf_token }}">
+        <div class="author-option-list">
+          {% for author in author_candidates %}
+            <label class="author-option{% if author.openalex_id == preselected_author_id %} selected{% endif %}">
+              <input
+                type="radio"
+                name="selected_openalex_author_id"
+                value="{{ author.openalex_id }}"
+                {% if author.openalex_id == preselected_author_id %}checked{% endif %}
+                required
+              >
+              <span class="author-option-body">
+                <span class="author-option-heading">
+                  <strong>{{ author.display_name or "Unnamed OpenAlex author" }}</strong>
+                  <span class="score-pill">{{ "%.0f"|format(author.confidence * 100) }} match</span>
+                </span>
+                <span class="meta-line">
+                  Current: {{ author.current_institutions|join(", ") if author.current_institutions else "Not listed" }}
+                </span>
+                <span class="meta-line">
+                  Previous: {{ author.previous_institutions|join(", ") if author.previous_institutions else "Not listed" }}
+                </span>
+                <span class="meta-line">
+                  Topics: {{ author.topics|join(", ") if author.topics else "Not listed" }}
+                </span>
+                <span class="meta-line">ORCID: {{ author.orcid or "Not listed" }}</span>
+                <span class="meta-line">OpenAlex ID: {{ author.openalex_id }}</span>
+                <span class="meta-line">Recent publication count: {{ author.recent_works_count }}</span>
+                {% if author.profile_url %}
+                  <span class="meta-line"><a class="text-link" href="{{ author.profile_url }}">OpenAlex profile</a></span>
+                {% endif %}
+                <ul class="reason-list compact-list">
+                  {% for reason in author.reasons %}
+                    <li>{{ reason }}</li>
+                  {% endfor %}
+                </ul>
+              </span>
+            </label>
+          {% endfor %}
+        </div>
+        <div class="form-actions author-actions">
+          <a class="text-link" href="/candidates/{{ candidate.id }}">Cancel</a>
+          <button type="submit">Confirm and Fetch Publications</button>
+        </div>
+      </form>
+    {% else %}
+      <div class="empty-state">
+        <h3>No author options available</h3>
+        <p>OpenAlex did not return a profile that can be safely linked to this candidate.</p>
+      </div>
+      <div class="form-actions author-actions">
+        <a class="button-link" href="/candidates/{{ candidate.id }}">Back to candidate</a>
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

@@ -22,6 +22,7 @@ from app.services.metadata import (
     match_candidate_author,
     normalize_openalex_author_id,
     parse_openalex_work,
+    rank_openalex_author_candidates,
     retrieve_recent_publications_for_candidate,
     score_openalex_author,
     score_publication_for_candidate,
@@ -135,7 +136,66 @@ def test_openalex_same_name_author_disambiguation_prefers_institution() -> None:
 
     assert ranked[0].openalex_id == "https://openalex.org/Aright"
     assert ranked[0].confidence >= 0.8
-    assert any("Affiliation history" in reason for reason in ranked[0].reasons)
+    assert any("affiliation" in reason.lower() for reason in ranked[0].reasons)
+
+
+def test_kevin_burdge_openalex_ranking_prefers_mit_physics_affiliation() -> None:
+    candidate = Candidate(
+        full_name="Kevin Burdge",
+        institution="MIT",
+        department="Physics",
+        research_area="time-domain astrophysics compact binaries stellar dynamics",
+        official_profile_url="https://physics.mit.edu/faculty/kevin-burdge/",
+        status=CandidateStatus.DISCOVERED,
+    )
+    wrong = score_openalex_author(
+        candidate,
+        {
+            "id": "https://openalex.org/A999999",
+            "display_name": "Kevin Burdge",
+            "works_count": 30,
+            "counts_by_year": [{"year": 2025, "works_count": 4}],
+            "last_known_institutions": [{"display_name": "California Institute of Technology"}],
+            "topics": [{"display_name": "Particle physics"}],
+        },
+    )
+    right = score_openalex_author(
+        candidate,
+        {
+            "id": "https://openalex.org/A123456",
+            "display_name": "Kevin Burdge",
+            "orcid": "https://orcid.org/0000-0002-0000-0000",
+            "works_count": 18,
+            "counts_by_year": [
+                {"year": 2025, "works_count": 3},
+                {"year": 2024, "works_count": 2},
+                {"year": 2020, "works_count": 9},
+            ],
+            "last_known_institutions": [
+                {"display_name": "Massachusetts Institute of Technology"},
+            ],
+            "affiliations": [
+                {
+                    "institution": {"display_name": "California Institute of Technology"},
+                    "years": [2021, 2020],
+                },
+            ],
+            "topics": [
+                {"display_name": "Astrophysics"},
+                {"display_name": "Compact binaries"},
+                {"display_name": "Stellar dynamics"},
+            ],
+        },
+    )
+
+    ranked = rank_openalex_author_candidates(candidate, [wrong, right])
+
+    assert ranked[0].openalex_id == "https://openalex.org/A123456"
+    assert ranked[0].current_institutions == ["Massachusetts Institute of Technology"]
+    assert ranked[0].previous_institutions == ["California Institute of Technology"]
+    assert "Astrophysics" in ranked[0].topics
+    assert ranked[0].recent_works_count == 5
+    assert ranked[0].confidence > wrong.confidence
 
 
 def test_openalex_author_id_normalization_requires_author_id() -> None:

@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.config import get_settings
 from app.db.session import create_engine_for_url, get_db, initialize_database
 from app.main import create_app
+from app.models.candidate import Candidate
 from app.models.paper import PaperAnalysis, PaperFile
 from app.models.publication import Authorship, Publication
 from app.security.csrf import csrf_token
@@ -631,6 +632,7 @@ def test_mit_discovery_save_then_fetch_publications_for_kevin_burdge(
                     orcid=None,
                     institutions=["Massachusetts Institute of Technology"],
                     works_count=12,
+                    recent_works_count=4,
                     confidence=0.95,
                     reasons=["Name and institution matched MIT Physics candidate."],
                     raw={},
@@ -725,6 +727,213 @@ def test_mit_discovery_save_then_fetch_publications_for_kevin_burdge(
     assert "author:1:Kevin Burdge" in openalex_calls
     assert "works:https://openalex.org/AKEVIN:2021" in openalex_calls
     assert "crossref:10.1000/burdge" in openalex_calls
+
+
+def test_mit_kevin_burdge_openalex_author_confirmation_fetches_publications(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    homepage_html = """
+    <nav>
+      <a href="/faculty/">Faculty</a>
+      <a href="/graduate-program/">Graduate Program</a>
+    </nav>
+    <main><h1>MIT Physics</h1><a href="/faculty/">Faculty Directory</a></main>
+    """
+    faculty_html = """
+    <main>
+      <section class="faculty-card">
+        <h3><a href="/faculty/kevin-burdge/">Kevin Burdge</a></h3>
+        <p>Assistant Professor of Physics.</p>
+        <p>Research: time-domain astrophysics, compact binaries, and stellar dynamics.</p>
+      </section>
+    </main>
+    """
+    openalex_calls: list[str] = []
+
+    class FakeFetcher:
+        def fetch(self, url: str, *, expected: str = "html") -> FetchResult:
+            assert expected == "html"
+            if url.endswith("/faculty/"):
+                return FetchResult(
+                    url=url,
+                    final_url="https://physics.mit.edu/faculty/",
+                    status_code=200,
+                    content_type="text/html",
+                    body=faculty_html.encode("utf-8"),
+                    sha256="b" * 64,
+                    robots_allowed=True,
+                )
+            return FetchResult(
+                url=url,
+                final_url="https://physics.mit.edu/",
+                status_code=200,
+                content_type="text/html",
+                body=homepage_html.encode("utf-8"),
+                sha256="a" * 64,
+                robots_allowed=True,
+            )
+
+    class FakeOpenAlexClient:
+        def search_author_candidates(self, candidate: Any) -> list[OpenAlexAuthorCandidate]:
+            openalex_calls.append(f"author:{candidate.id}:{candidate.full_name}")
+            return [
+                OpenAlexAuthorCandidate(
+                    openalex_id="https://openalex.org/A999999",
+                    display_name="Kevin Burdge",
+                    orcid=None,
+                    institutions=["California Institute of Technology"],
+                    works_count=30,
+                    recent_works_count=6,
+                    confidence=0.55,
+                    reasons=["Exact author-name match."],
+                    raw={},
+                    current_institutions=["California Institute of Technology"],
+                    previous_institutions=[],
+                    topics=["Particle physics"],
+                    profile_url="https://openalex.org/A999999",
+                ),
+                OpenAlexAuthorCandidate(
+                    openalex_id="https://openalex.org/A123456",
+                    display_name="Kevin Burdge",
+                    orcid="https://orcid.org/0000-0002-0000-0000",
+                    institutions=[
+                        "Massachusetts Institute of Technology",
+                        "California Institute of Technology",
+                    ],
+                    works_count=18,
+                    recent_works_count=5,
+                    confidence=0.93,
+                    reasons=[
+                        "Exact author-name match.",
+                        "Current affiliation matches MIT.",
+                        "OpenAlex topics overlap with the recorded research area.",
+                    ],
+                    raw={},
+                    current_institutions=["Massachusetts Institute of Technology"],
+                    previous_institutions=["California Institute of Technology"],
+                    topics=["Astrophysics", "Compact binaries", "Stellar dynamics"],
+                    profile_url="https://openalex.org/A123456",
+                ),
+            ]
+
+        def works_for_author(
+            self,
+            openalex_author_id: str,
+            *,
+            from_year: int | None = None,
+        ) -> list[PublicationMetadata]:
+            openalex_calls.append(f"works:{openalex_author_id}:{from_year}")
+            assert openalex_author_id == "https://openalex.org/A123456"
+            return [
+                PublicationMetadata(
+                    title="Compact Binary Discovery in Time-Domain Surveys",
+                    year=2025,
+                    venue="Example Astrophysics Journal",
+                    doi="10.1000/kevin-confirmed",
+                    arxiv_id="2502.12345",
+                    openalex_id="https://openalex.org/WKEVIN",
+                    source="openalex",
+                    open_access_url="https://arxiv.org/abs/2502.12345",
+                    pdf_url="https://arxiv.org/pdf/2502.12345",
+                    authors=["Kevin Burdge", "Collaborator"],
+                    author_institutions=["Massachusetts Institute of Technology"],
+                    raw={"_retrieval": {"source_url": "https://api.openalex.org/works"}},
+                ),
+            ]
+
+    class FakeCrossrefClient:
+        def work_by_doi(self, doi: str | None) -> PublicationMetadata | None:
+            openalex_calls.append(f"crossref:{doi}")
+            return None
+
+    monkeypatch.setattr("app.routes.discovery.SafeFetcher", FakeFetcher)
+    monkeypatch.setattr("app.services.metadata.OpenAlexClient", FakeOpenAlexClient)
+    monkeypatch.setattr("app.services.metadata.CrossrefClient", FakeCrossrefClient)
+    client, session_factory = build_test_context(tmp_path)
+
+    resolved = client.post(
+        "/discovery/resolve",
+        data={
+            "csrf": csrf_token(),
+            "source_url": "https://physics.mit.edu/",
+            "institution": "MIT",
+            "department": "Physics",
+        },
+    )
+    assert resolved.status_code == 200
+    assert "https://physics.mit.edu/faculty/" in resolved.text
+
+    imported = client.post(
+        "/discovery/import",
+        data={
+            "csrf": csrf_token(),
+            "source_url": "https://physics.mit.edu/",
+            "directory_url": "https://physics.mit.edu/faculty/",
+            "institution": "MIT",
+            "department": "Physics",
+        },
+        follow_redirects=True,
+    )
+    assert imported.status_code == 200
+    assert "Kevin Burdge" in imported.text
+
+    saved = client.post(
+        "/discovery/candidates/1/save",
+        data={"csrf": csrf_token()},
+        follow_redirects=True,
+    )
+    assert saved.status_code == 200
+
+    selection = client.post(
+        "/candidates/1/publications/retrieve-live",
+        data={"csrf": csrf_token()},
+    )
+    assert selection.status_code == 200
+    assert "application/json" not in selection.headers["content-type"]
+    assert "Confirm OpenAlex Author" in selection.text
+    assert "Massachusetts Institute of Technology" in selection.text
+    assert "California Institute of Technology" in selection.text
+    assert "Astrophysics" in selection.text
+    assert "https://orcid.org/0000-0002-0000-0000" in selection.text
+    assert "https://openalex.org/A123456" in selection.text
+    assert "Recent publication count: 5" in selection.text
+    assert "value=\"https://openalex.org/A123456\"" in selection.text
+    assert "checked" in selection.text
+    assert "Compact Binary Discovery" not in selection.text
+
+    confirmed = client.post(
+        "/candidates/1/publications/openalex-author/confirm",
+        data={
+            "csrf": csrf_token(),
+            "selected_openalex_author_id": "https://openalex.org/A123456",
+        },
+        follow_redirects=True,
+    )
+    publication_hub = client.get("/publications")
+
+    assert confirmed.status_code == 200
+    assert "Compact Binary Discovery in Time-Domain Surveys" in confirmed.text
+    assert "Compact Binary Discovery in Time-Domain Surveys" in publication_hub.text
+    assert "works:https://openalex.org/A123456:2021" in openalex_calls
+    assert "crossref:10.1000/kevin-confirmed" in openalex_calls
+
+    with session_factory() as session:
+        stored = session.get(Candidate, 1)
+        assert stored is not None
+        assert stored.openalex_author_id == "https://openalex.org/A123456"
+
+    openalex_calls.clear()
+    refetched = client.post(
+        "/candidates/1/publications/retrieve-live",
+        data={"csrf": csrf_token()},
+        follow_redirects=True,
+    )
+
+    assert refetched.status_code == 200
+    assert "Confirm OpenAlex Author" not in refetched.text
+    assert "author:1:Kevin Burdge" not in openalex_calls
+    assert "works:https://openalex.org/A123456:2021" in openalex_calls
 
 
 def test_discovery_exclusion_requires_manual_override(

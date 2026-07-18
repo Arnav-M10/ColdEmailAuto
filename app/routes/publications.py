@@ -1,25 +1,31 @@
+from collections.abc import Sequence
 from typing import cast
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.models.candidate import Candidate
 from app.models.publication import Publication
 from app.security.csrf import csrf_token, validate_csrf_token
 from app.services.candidates import get_candidate, list_candidates
 from app.services.metadata import (
+    OpenAlexAuthorCandidate,
     approve_publication_for_retrieval,
     assert_publication_selected_for_retrieval,
     list_candidate_publications,
+    list_openalex_author_candidates_for_candidate,
     list_publications,
     manual_publication_metadata,
+    normalize_openalex_author_id,
     retrieve_recent_publications_for_candidate,
     upsert_publication_with_authorship,
 )
 from app.services.retrieval import retrieve_publication_pdf
 
 router = APIRouter()
+MIN_CONFIDENT_AUTHOR_SCORE = 0.75
 
 
 def render(request: Request, template_name: str, context: dict[str, object]) -> HTMLResponse:
@@ -27,6 +33,32 @@ def render(request: Request, template_name: str, context: dict[str, object]) -> 
     base_context = request.app.state.base_context()
     base_context.update(context)
     return cast(HTMLResponse, templates.TemplateResponse(request, template_name, base_context))
+
+
+def render_author_selection(
+    request: Request,
+    *,
+    candidate: Candidate,
+    author_candidates: Sequence[OpenAlexAuthorCandidate],
+    error_message: str | None = None,
+) -> HTMLResponse:
+    preselected_author_id = ""
+    if author_candidates:
+        first = author_candidates[0]
+        preselected_author_id = getattr(first, "openalex_id", "")
+    return render(
+        request,
+        "publication_author_selection.html",
+        {
+            "active_page": "publications",
+            "page_title": "Confirm OpenAlex Author",
+            "candidate": candidate,
+            "author_candidates": author_candidates,
+            "preselected_author_id": preselected_author_id,
+            "error_message": error_message,
+            "csrf_token": csrf_token(),
+        },
+    )
 
 
 @router.get("/publications", response_class=HTMLResponse)
@@ -91,23 +123,111 @@ def candidate_add_manual_publication(
 
 @router.post("/candidates/{candidate_id}/publications/retrieve-live")
 def candidate_retrieve_live_publications(
+    request: Request,
     candidate_id: int,
     csrf: str = Form(...),
     openalex_author_id: str = Form(""),
+    db: Session = Depends(get_db),
+) -> Response:
+    validate_csrf_token(csrf)
+    candidate = get_candidate(db, candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=404)
+    confirmed_author_id = openalex_author_id.strip()
+    if confirmed_author_id:
+        try:
+            candidate.openalex_author_id = normalize_openalex_author_id(confirmed_author_id)
+            retrieve_recent_publications_for_candidate(
+                db,
+                candidate=candidate,
+                confirmed_openalex_author_id=candidate.openalex_author_id,
+            )
+        except ValueError as exc:
+            return render_author_selection(
+                request,
+                candidate=candidate,
+                author_candidates=[],
+                error_message=str(exc),
+            )
+        db.commit()
+        return RedirectResponse(f"/candidates/{candidate_id}", status_code=303)
+    if not candidate.openalex_author_id:
+        try:
+            author_candidates = list_openalex_author_candidates_for_candidate(candidate)
+        except Exception as exc:
+            return render_author_selection(
+                request,
+                candidate=candidate,
+                author_candidates=[],
+                error_message=f"OpenAlex author lookup failed: {exc}",
+            )
+        needs_confirmation = (
+            len(author_candidates) != 1
+            or author_candidates[0].confidence < MIN_CONFIDENT_AUTHOR_SCORE
+        )
+        if needs_confirmation:
+            return render_author_selection(
+                request,
+                candidate=candidate,
+                author_candidates=author_candidates,
+            )
+    try:
+        retrieve_recent_publications_for_candidate(
+            db,
+            candidate=candidate,
+        )
+    except ValueError as exc:
+        return render_author_selection(
+            request,
+            candidate=candidate,
+            author_candidates=[],
+            error_message=str(exc),
+        )
+    db.commit()
+    return RedirectResponse(f"/candidates/{candidate_id}", status_code=303)
+
+
+@router.post("/candidates/{candidate_id}/publications/openalex-author/confirm")
+def candidate_confirm_openalex_author(
+    request: Request,
+    candidate_id: int,
+    csrf: str = Form(...),
+    selected_openalex_author_id: str = Form(...),
+    db: Session = Depends(get_db),
+) -> Response:
+    validate_csrf_token(csrf)
+    candidate = get_candidate(db, candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=404)
+    try:
+        candidate.openalex_author_id = normalize_openalex_author_id(selected_openalex_author_id)
+        retrieve_recent_publications_for_candidate(
+            db,
+            candidate=candidate,
+            confirmed_openalex_author_id=candidate.openalex_author_id,
+        )
+    except ValueError as exc:
+        return render_author_selection(
+            request,
+            candidate=candidate,
+            author_candidates=[],
+            error_message=str(exc),
+        )
+    db.commit()
+    return RedirectResponse(f"/candidates/{candidate_id}", status_code=303)
+
+
+@router.post("/candidates/{candidate_id}/publications/openalex-author/reset")
+def candidate_reset_openalex_author(
+    candidate_id: int,
+    csrf: str = Form(...),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
     validate_csrf_token(csrf)
     candidate = get_candidate(db, candidate_id)
     if candidate is None:
         raise HTTPException(status_code=404)
-    try:
-        retrieve_recent_publications_for_candidate(
-            db,
-            candidate=candidate,
-            confirmed_openalex_author_id=openalex_author_id or None,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    candidate.openalex_author_id = None
     db.commit()
     return RedirectResponse(f"/candidates/{candidate_id}", status_code=303)
 

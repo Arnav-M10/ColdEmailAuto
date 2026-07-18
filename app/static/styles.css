@@ -279,6 +279,11 @@ dd {
   padding: 24px;
 }
 
+.attention-state {
+  border-color: #f2b8a0;
+  background: #fff8f4;
+}
+
 .asset-list {
   display: grid;
   gap: 10px;
@@ -449,6 +454,16 @@ th {
   color: #0f3f3a;
 }
 
+.score-pill {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 4px 8px;
+  background: #e7f8f5;
+  color: #0f3f3a;
+  font-size: 0.82rem;
+  font-weight: 750;
+}
+
 .text-link {
   color: var(--accent-dark);
   font-weight: 750;
@@ -471,6 +486,49 @@ th {
 
 .publication-fetch-form input {
   max-width: 180px;
+}
+
+.author-option-list {
+  display: grid;
+  gap: 14px;
+}
+
+.author-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 16px;
+  background: #fff;
+}
+
+.author-option.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgb(15 118 110 / 12%);
+}
+
+.author-option input {
+  margin-top: 5px;
+}
+
+.author-option-body {
+  display: grid;
+  gap: 8px;
+}
+
+.author-option-heading {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.author-actions {
+  gap: 14px;
+  margin-top: 18px;
+  align-items: center;
 }
 
 .checkbox-row {

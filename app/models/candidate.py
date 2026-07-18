@@ -37,6 +37,7 @@ class Candidate(Base, TimestampMixin, SoftDeleteMixin):
     department: Mapped[str | None] = mapped_column(String(240), nullable=True)
     research_area: Mapped[str | None] = mapped_column(String(500), nullable=True)
     official_profile_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    openalex_author_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
     notes: Mapped[str | None] = mapped_column(String(2000), nullable=True)
     status: Mapped[CandidateStatus] = mapped_column(
         Enum(CandidateStatus, native_enum=False, length=40),

@@ -42,3 +42,16 @@ def test_candidate_default_status_is_discovered() -> None:
         stored = session.scalars(select(Candidate)).one()
 
     assert stored.status == CandidateStatus.DISCOVERED
+
+
+def test_database_initializes_candidate_openalex_author_storage() -> None:
+    engine = create_engine_for_url("sqlite:///:memory:")
+    initialize_database(engine)
+
+    with engine.begin() as connection:
+        columns = {
+            row[1]
+            for row in connection.exec_driver_sql("PRAGMA table_info(candidates)").fetchall()
+        }
+
+    assert "openalex_author_id" in columns
