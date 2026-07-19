@@ -13,6 +13,7 @@ from app.services.candidates import create_candidate
 from app.services.metadata import title_fingerprint
 from app.services.retrieval import (
     arxiv_pdf_url,
+    pdf_eligibility_for_publication,
     plan_publication_pdf_retrieval_candidates,
     retrieve_publication_pdf,
 )
@@ -176,6 +177,51 @@ def test_retrieval_plans_prefer_arxiv_then_lawful_public_pdf() -> None:
         "https://iopscience.iop.org/article/10.1088/example/pdf",
     ]
     assert plans[1].license_note == "Approved public full-text host PDF."
+
+
+def test_pdf_eligibility_classifies_direct_pdf_url() -> None:
+    publication = make_publication(
+        arxiv_id=None,
+        pdf_url="https://iopscience.iop.org/article/10.1088/example/pdf",
+    )
+
+    eligibility = pdf_eligibility_for_publication(publication)
+
+    assert eligibility.eligible is True
+    assert eligibility.source_type == "DIRECT_PDF_URL"
+    assert eligibility.canonical_pdf_url == "https://iopscience.iop.org/article/10.1088/example/pdf"
+
+
+def test_pdf_eligibility_derives_arxiv_pdf_url() -> None:
+    publication = make_publication(arxiv_id="2501.12345")
+
+    eligibility = pdf_eligibility_for_publication(publication)
+
+    assert eligibility.eligible is True
+    assert eligibility.source_type == "ARXIV_ID_AVAILABLE"
+    assert eligibility.canonical_pdf_url == "https://arxiv.org/pdf/2501.12345"
+
+
+def test_pdf_eligibility_does_not_treat_landing_page_as_direct_pdf() -> None:
+    publication = make_publication(
+        arxiv_id=None,
+        open_access_url="https://example.edu/repository/paper-record",
+    )
+
+    eligibility = pdf_eligibility_for_publication(publication)
+
+    assert eligibility.eligible is False
+    assert eligibility.source_type == "OPEN_ACCESS_LANDING_PAGE_ONLY"
+    assert eligibility.canonical_pdf_url is None
+
+
+def test_pdf_eligibility_classifies_doi_only() -> None:
+    publication = make_publication(arxiv_id=None, doi="10.1000/example")
+
+    eligibility = pdf_eligibility_for_publication(publication)
+
+    assert eligibility.eligible is False
+    assert eligibility.source_type == "DOI_ONLY"
 
 
 def test_openalex_pdf_url_is_ranked_as_openalex_fallback() -> None:

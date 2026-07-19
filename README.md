@@ -199,6 +199,16 @@ If `GEMINI_API_KEY` or `AI_API_KEY` is missing, the app will show a clear setup 
 
 Open a candidate and use `Run Research Workflow` to continue from saved candidate/publication metadata to a selected paper. The workflow ranks publications by outreach fit, skips papers without lawful full text, retrieves the selected PDF through the safe fetcher, extracts text, analyzes the full paper through the configured AI provider, generates a local draft, and stops for review.
 
+PDF eligibility is determined by one canonical retrieval service and shared by ranking, UI labels,
+automatic selection, and PDF retrieval. The workflow distinguishes direct PDF URLs, arXiv-derived
+PDF URLs, landing-page-only records, DOI-only records, repository records without PDFs, unsafe URLs,
+and missing full-text sources.
+
+If the top-ranked suitable paper fails PDF retrieval, the workflow records the exact safe failure
+reason and automatically tries the next suitable paper. Manual publication selection appears only
+after all suitable automatic candidates are exhausted or when you explicitly choose a different
+paper.
+
 Use `Choose a different paper` when you want a manual override. Manual publication-linked PDF retrieval still requires explicit paper approval.
 
 The final review page is designed for manual copying into school Outlook. It shows copy buttons for the recipient, subject, body, and complete email, but it does not open Outlook, access a mailbox, request mail permissions, or send email.

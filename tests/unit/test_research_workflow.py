@@ -1,5 +1,6 @@
 from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 
 from pypdf import PdfWriter
@@ -130,6 +131,57 @@ class FakePDFFetcher:
         )
 
 
+class FailingThenSuccessfulPDFFetcher:
+    def __init__(self, successful_url: str, seed: str = "fallback") -> None:
+        self.successful_url = successful_url
+        self.seed = seed
+        self.urls: list[str] = []
+
+    def fetch(self, url: str, *, expected: str = "pdf") -> FetchResult:
+        self.urls.append(url)
+        if url != self.successful_url:
+            return FetchResult(
+                url=url,
+                final_url=url,
+                status_code=200,
+                content_type="text/html",
+                body=b"<html>not a pdf</html>",
+                sha256="0" * 64,
+                robots_allowed=True,
+            )
+        return FetchResult(
+            url=url,
+            final_url=url,
+            status_code=200,
+            content_type="application/pdf",
+            body=pdf_bytes(self.seed),
+            sha256="1" * 64,
+            robots_allowed=True,
+        )
+
+
+class AlwaysFailingPDFFetcher:
+    def __init__(self) -> None:
+        self.urls: list[str] = []
+
+    def fetch(self, url: str, *, expected: str = "pdf") -> FetchResult:
+        self.urls.append(url)
+        return FetchResult(
+            url=url,
+            final_url=url,
+            status_code=200,
+            content_type="text/html",
+            body=b"<html>not a pdf</html>",
+            sha256="2" * 64,
+            robots_allowed=True,
+        )
+
+
+class ExplodingPDFFetcher:
+    def fetch(self, url: str, *, expected: str = "pdf") -> FetchResult:
+        raise RuntimeError("network client exploded")
+
+
 def mock_provider() -> MockProvider:
     return MockProvider(
         PaperAnalysisOutput(
@@ -151,6 +203,18 @@ def mock_provider() -> MockProvider:
                     confidence=0.9,
                 ),
             ],
+        ),
+    )
+
+
+def make_portfolio_available(monkeypatch: Any) -> None:
+    monkeypatch.setattr(
+        "app.services.research_workflow.load_research_portfolio_text_status",
+        lambda: SimpleNamespace(
+            available=True,
+            text="magnetic fields computational astrophysics survey analysis",
+            status="AVAILABLE",
+            reason=None,
         ),
     )
 
@@ -179,13 +243,14 @@ def test_auto_selection_skips_high_score_without_lawful_full_text(tmp_path: Path
         assert selected.metadata_only == metadata_only
         assert selected.rejected[0]["title"] == "Magnetic Fields Without Public PDF"
         rejected_reasons = cast(list[str], selected.rejected[0]["reasons"])
-        assert "No lawful full text is available." in rejected_reasons
+        assert "DOI-only metadata is not a lawful PDF source" in " ".join(rejected_reasons)
 
 
 def test_research_workflow_persists_selected_paper_analysis_and_draft(
     tmp_path: Path,
     monkeypatch: Any,
 ) -> None:
+    make_portfolio_available(monkeypatch)
     monkeypatch.setattr(
         "app.services.research_workflow.required_attachments_ready",
         lambda: True,
@@ -227,6 +292,7 @@ def test_research_workflow_blocks_ready_state_when_attachments_are_missing(
     tmp_path: Path,
     monkeypatch: Any,
 ) -> None:
+    make_portfolio_available(monkeypatch)
     monkeypatch.setattr(
         "app.services.research_workflow.required_attachments_ready",
         lambda: False,
@@ -249,7 +315,151 @@ def test_research_workflow_blocks_ready_state_when_attachments_are_missing(
             pdf_fetcher=FakePDFFetcher("missing-assets"),
         )
 
-        assert workflow.status == "FAILED"
-        assert workflow.failed_stage == "Verifying attachments"
-        assert "resume and research portfolio PDFs" in (workflow.failure_reason or "")
-        assert workflow.draft_id is None
+    assert workflow.status == "FAILED"
+    assert workflow.failed_stage == "Verifying attachments"
+    assert "resume and research portfolio PDFs" in (workflow.failure_reason or "")
+    assert workflow.draft_id is None
+
+
+def test_workflow_attempts_direct_pdf_before_manual_selection(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    make_portfolio_available(monkeypatch)
+    monkeypatch.setattr("app.services.research_workflow.required_attachments_ready", lambda: True)
+    with session_for(tmp_path) as session:
+        candidate_record = candidate(session)
+        candidate_record.openalex_author_id = "https://openalex.org/A1"
+        selected = publication(
+            session,
+            candidate_record,
+            title="Direct PDF Outreach Match",
+            score=94.0,
+            arxiv_id=None,
+        )
+        selected.pdf_url = "https://iopscience.iop.org/article/10.1088/example/pdf"
+        fetcher = FakePDFFetcher("direct-pdf")
+
+        workflow = run_research_workflow(
+            session,
+            candidate=candidate_record,
+            provider=mock_provider(),
+            pdf_fetcher=fetcher,
+        )
+
+    assert workflow.status == "READY_FOR_REVIEW"
+    assert workflow.selected_publication_id == selected.id
+    assert fetcher.urls == ["https://iopscience.iop.org/article/10.1088/example/pdf"]
+
+
+def test_workflow_falls_back_when_top_pdf_retrieval_fails(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    make_portfolio_available(monkeypatch)
+    monkeypatch.setattr("app.services.research_workflow.required_attachments_ready", lambda: True)
+    with session_for(tmp_path) as session:
+        candidate_record = candidate(session)
+        candidate_record.openalex_author_id = "https://openalex.org/A1"
+        publication(
+            session,
+            candidate_record,
+            title="Top Ranked Broken PDF",
+            score=96.0,
+            arxiv_id="2501.11111",
+        )
+        fallback = publication(
+            session,
+            candidate_record,
+            title="Second Ranked Working PDF",
+            score=92.0,
+            arxiv_id="2501.22222",
+        )
+        fetcher = FailingThenSuccessfulPDFFetcher("https://arxiv.org/pdf/2501.22222")
+
+        workflow = run_research_workflow(
+            session,
+            candidate=candidate_record,
+            provider=mock_provider(),
+            pdf_fetcher=fetcher,
+        )
+        result = workflow.retrieval_result_json
+
+    assert workflow.status == "READY_FOR_REVIEW"
+    assert workflow.selected_publication_id == fallback.id
+    assert fetcher.urls == [
+        "https://arxiv.org/pdf/2501.11111",
+        "https://arxiv.org/pdf/2501.22222",
+    ]
+    assert "Top Ranked Broken PDF" in result
+    assert "Second Ranked Working PDF" in result
+
+
+def test_workflow_enters_manual_only_after_all_suitable_pdfs_fail(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    make_portfolio_available(monkeypatch)
+    with session_for(tmp_path) as session:
+        candidate_record = candidate(session)
+        candidate_record.openalex_author_id = "https://openalex.org/A1"
+        publication(
+            session,
+            candidate_record,
+            title="Broken Suitable PDF One",
+            score=96.0,
+            arxiv_id="2501.33333",
+        )
+        publication(
+            session,
+            candidate_record,
+            title="Broken Suitable PDF Two",
+            score=92.0,
+            arxiv_id="2501.44444",
+        )
+        fetcher = AlwaysFailingPDFFetcher()
+
+        workflow = run_research_workflow(
+            session,
+            candidate=candidate_record,
+            provider=mock_provider(),
+            pdf_fetcher=fetcher,
+        )
+
+    assert workflow.status == "WAITING_FOR_MANUAL_PAPER_SELECTION"
+    assert workflow.selected_publication_id is None
+    assert "All automatically suitable publications failed" in (workflow.failure_reason or "")
+    assert fetcher.urls == [
+        "https://arxiv.org/pdf/2501.33333",
+        "https://arxiv.org/pdf/2501.44444",
+    ]
+    assert "all_suitable_papers_exhausted" in workflow.retrieval_result_json
+
+
+def test_broad_retrieval_exception_fails_workflow_not_manual_selection(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    make_portfolio_available(monkeypatch)
+    with session_for(tmp_path) as session:
+        candidate_record = candidate(session)
+        candidate_record.openalex_author_id = "https://openalex.org/A1"
+        publication(
+            session,
+            candidate_record,
+            title="Exploding Retrieval PDF",
+            score=95.0,
+            arxiv_id="2501.55555",
+        )
+
+        workflow = run_research_workflow(
+            session,
+            candidate=candidate_record,
+            provider=mock_provider(),
+            pdf_fetcher=ExplodingPDFFetcher(),
+        )
+
+    assert workflow.status == "FAILED"
+    assert workflow.failed_stage == "Retrieving PDF"
+    assert "RuntimeError" in (workflow.failure_reason or "")
+    assert workflow.selected_publication_id is not None

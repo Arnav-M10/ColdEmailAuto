@@ -27,6 +27,18 @@ class RetrievalPlan:
 
 
 @dataclass(frozen=True)
+class PDFEligibility:
+    eligible: bool
+    source_type: str
+    canonical_pdf_url: str | None
+    landing_page_url: str | None
+    lawful_source_reason: str | None
+    rejection_reason: str | None
+    retrieval_priority: int | None
+    plans: list[RetrievalPlan]
+
+
+@dataclass(frozen=True)
 class RetrievalFailure:
     url: str
     source_type: str
@@ -129,7 +141,7 @@ def _candidate_plan(url: str, *, source_type: str) -> RetrievalPlan | None:
     return RetrievalPlan(url=cleaned, license_note=note, rank=rank, source_type=source_type)
 
 
-def plan_publication_pdf_retrieval_candidates(publication: Publication) -> list[RetrievalPlan]:
+def _retrieval_plans_for_publication(publication: Publication) -> list[RetrievalPlan]:
     plans: list[RetrievalPlan] = []
     if publication.arxiv_id:
         plans.append(
@@ -160,8 +172,90 @@ def plan_publication_pdf_retrieval_candidates(publication: Publication) -> list[
     return list(unique.values())
 
 
+def pdf_eligibility_for_publication(publication: Publication) -> PDFEligibility:
+    plans = _retrieval_plans_for_publication(publication)
+    landing_page_url = publication.open_access_url
+    if plans:
+        selected = plans[0]
+        if selected.source_type == "arxiv_id" or _is_arxiv_url(selected.url):
+            source_type = "ARXIV_ID_AVAILABLE"
+        else:
+            source_type = "DIRECT_PDF_URL"
+        return PDFEligibility(
+            eligible=True,
+            source_type=source_type,
+            canonical_pdf_url=selected.url,
+            landing_page_url=landing_page_url,
+            lawful_source_reason=selected.license_note,
+            rejection_reason=None,
+            retrieval_priority=selected.rank,
+            plans=plans,
+        )
+    if publication.open_access_url:
+        try:
+            validate_url(publication.open_access_url, resolve_dns=False)
+        except SafeFetchError as exc:
+            return PDFEligibility(
+                eligible=False,
+                source_type="INVALID_OR_UNSAFE_URL",
+                canonical_pdf_url=None,
+                landing_page_url=publication.open_access_url,
+                lawful_source_reason=None,
+                rejection_reason=str(exc),
+                retrieval_priority=None,
+                plans=[],
+            )
+        return PDFEligibility(
+            eligible=False,
+            source_type="OPEN_ACCESS_LANDING_PAGE_ONLY",
+            canonical_pdf_url=None,
+            landing_page_url=publication.open_access_url,
+            lawful_source_reason=None,
+            rejection_reason="Open-access landing page does not expose a direct retrievable PDF.",
+            retrieval_priority=None,
+            plans=[],
+        )
+    raw = _json_object(publication.metadata_json)
+    if raw.get("best_oa_location") or raw.get("primary_location") or raw.get("locations"):
+        return PDFEligibility(
+            eligible=False,
+            source_type="REPOSITORY_RECORD_WITHOUT_PDF",
+            canonical_pdf_url=None,
+            landing_page_url=None,
+            lawful_source_reason=None,
+            rejection_reason="Publication metadata has an open-access record but no safe PDF URL.",
+            retrieval_priority=None,
+            plans=[],
+        )
+    if publication.doi:
+        return PDFEligibility(
+            eligible=False,
+            source_type="DOI_ONLY",
+            canonical_pdf_url=None,
+            landing_page_url=None,
+            lawful_source_reason=None,
+            rejection_reason="DOI is available, but DOI-only metadata is not a lawful PDF source.",
+            retrieval_priority=None,
+            plans=[],
+        )
+    return PDFEligibility(
+        eligible=False,
+        source_type="NO_LAWFUL_SOURCE",
+        canonical_pdf_url=None,
+        landing_page_url=None,
+        lawful_source_reason=None,
+        rejection_reason="No lawful public PDF source is recorded.",
+        retrieval_priority=None,
+        plans=[],
+    )
+
+
+def plan_publication_pdf_retrieval_candidates(publication: Publication) -> list[RetrievalPlan]:
+    return pdf_eligibility_for_publication(publication).plans
+
+
 def plan_publication_pdf_retrieval(publication: Publication) -> RetrievalPlan | None:
-    plans = plan_publication_pdf_retrieval_candidates(publication)
+    plans = pdf_eligibility_for_publication(publication).plans
     return plans[0] if plans else None
 
 

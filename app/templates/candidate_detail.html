@@ -45,7 +45,10 @@
         <div class="workflow-card">
           <span class="metric-label">Selected paper</span>
           {% if selected_publication %}
-            <strong>{{ selected_publication.title }}</strong>
+            <strong>{% if workflow.status == "WAITING_FOR_MANUAL_PAPER_SELECTION" %}Last attempted paper{% else %}{{ selected_publication.title }}{% endif %}</strong>
+            {% if workflow.status == "WAITING_FOR_MANUAL_PAPER_SELECTION" %}
+              <p>{{ selected_publication.title }}</p>
+            {% endif %}
             <p>{{ selected_publication.year or "Year unknown" }}{% if selected_publication.venue %}, {{ selected_publication.venue }}{% endif %}</p>
           {% else %}
             <strong>Not selected</strong>
@@ -88,6 +91,27 @@
             <li>{{ reason }}</li>
           {% endfor %}
         </ul>
+      {% endif %}
+      {% if workflow_retrieval_result %}
+        <h3>PDF retrieval</h3>
+        <div class="empty-state workflow-message">
+          <p>Status: {{ workflow_retrieval_result.status|replace("_", " ")|title }}</p>
+          {% if workflow_retrieval_result.latest_failure %}
+            <p>{{ workflow_retrieval_result.latest_failure }}</p>
+          {% endif %}
+          {% if workflow_retrieval_result.attempts %}
+            <ul class="reason-list compact-list">
+              {% for attempt in workflow_retrieval_result.attempts %}
+                <li>
+                  {{ attempt.title }} -
+                  {{ attempt.pdf_eligibility_type|replace("_", " ")|title }} -
+                  {{ attempt.retrieval_status|replace("_", " ")|title }}
+                  {% if attempt.rejection_reason %}: {{ attempt.rejection_reason }}{% endif %}
+                </li>
+              {% endfor %}
+            </ul>
+          {% endif %}
+        </div>
       {% endif %}
       <div class="split-actions workflow-actions">
         {% if workflow.status == "WAITING_FOR_AUTHOR_CONFIRMATION" %}

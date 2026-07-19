@@ -1,6 +1,8 @@
 import json
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from urllib.parse import urlparse
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -36,8 +38,9 @@ from app.services.research_intelligence import (
     profile_view,
 )
 from app.services.retrieval import (
+    PDFEligibility,
     PDFFetcherLike,
-    plan_publication_pdf_retrieval,
+    pdf_eligibility_for_publication,
     retrieve_publication_pdf,
 )
 from app.services.review import manual_review_context
@@ -57,6 +60,7 @@ WORKFLOW_STAGES = [
     "Ready for review",
 ]
 ANALYSIS_PROMPT_VERSION = "paper-analysis-v1"
+logger = logging.getLogger("professor_outreach.workflow")
 
 
 @dataclass(frozen=True)
@@ -67,6 +71,16 @@ class SelectionResult:
     rejected: list[dict[str, object]]
     score: float = 0.0
     metadata_only: Publication | None = None
+
+
+@dataclass(frozen=True)
+class RankedPublicationSelection:
+    authorship: Authorship
+    publication: Publication
+    reasons: list[str]
+    score: float
+    rank: int
+    pdf_eligibility: PDFEligibility
 
 
 def latest_workflow_run(session: Session, candidate_id: int) -> ResearchWorkflowRun | None:
@@ -104,39 +118,138 @@ def run_research_workflow(
         workflow.researcher_profile_id = profile.id
 
         set_stage(workflow, "Ranking papers")
-        selection = select_best_publication(session, candidate=candidate)
-        workflow.rejected_alternatives_json = json.dumps(selection.rejected)
-        workflow.selection_reasons_json = json.dumps(selection.reasons)
-        if selection.authorship is None or selection.publication is None:
+        ranked_selections, rejected, metadata_only = ranked_publication_selections(
+            session,
+            candidate=candidate,
+        )
+        workflow.rejected_alternatives_json = json.dumps(rejected)
+        if not ranked_selections:
             workflow.status = "WAITING_FOR_MANUAL_PAPER_SELECTION"
             workflow.failed_stage = None
             workflow.failure_reason = (
-                "No suitable publication with lawful full text was available. "
+                "No publication passed the automatic suitability threshold. "
                 "Manual paper selection is required before PDF retrieval or analysis."
             )
-            if selection.metadata_only is not None:
-                workflow.selected_publication_id = selection.metadata_only.id
+            workflow.selected_publication_id = None
+            if metadata_only is not None:
+                workflow.rejected_alternatives_json = json.dumps(
+                    [
+                        *rejected,
+                        {
+                            "publication_id": metadata_only.id,
+                            "title": metadata_only.title,
+                            "rank": 1,
+                            "reasons": ["Highest-ranked metadata-only paper retained for review."],
+                        },
+                    ],
+                )
             return workflow
 
-        set_stage(workflow, "Selecting paper")
-        workflow.selected_publication_id = selection.publication.id
-        workflow.selection_score = selection.score
-        workflow.selected_at = datetime.now(UTC)
-        approve_publication_for_retrieval(
-            session,
-            candidate_id=candidate.id,
-            publication_id=selection.publication.id,
-            notes="Automatically selected by outreach ranking.",
-        )
+        paper_file: PaperFile | None = None
+        selected_publication: Publication | None = None
+        selected_selection: RankedPublicationSelection | None = None
+        attempts: list[dict[str, object]] = []
+        for selection in ranked_selections:
+            set_stage(workflow, "Selecting paper")
+            workflow.selected_publication_id = selection.publication.id
+            workflow.selection_score = selection.score
+            workflow.selected_at = datetime.now(UTC)
+            workflow.selection_reasons_json = json.dumps(selection.reasons)
+            approve_publication_for_retrieval(
+                session,
+                candidate_id=candidate.id,
+                publication_id=selection.publication.id,
+                notes="Automatically selected by outreach ranking.",
+            )
+            log_workflow_transition(
+                workflow,
+                from_stage="Ranking papers",
+                to_stage="Retrieving PDF",
+                publication=selection.publication,
+                selection=selection,
+            )
 
-        set_stage(workflow, "Retrieving PDF")
-        paper_file = retrieve_selected_pdf(
-            session,
-            candidate=candidate,
-            publication=selection.publication,
-            workflow=workflow,
-            pdf_fetcher=pdf_fetcher,
+            set_stage(workflow, "Retrieving PDF")
+            try:
+                paper_file = retrieve_selected_pdf(
+                    session,
+                    candidate=candidate,
+                    publication=selection.publication,
+                    workflow=workflow,
+                    pdf_fetcher=pdf_fetcher,
+                )
+            except WorkflowStageError as exc:
+                attempt = retrieval_attempt_record(
+                    selection=selection,
+                    attempted=True,
+                    status="failed",
+                    rejection_reason=exc.reason,
+                )
+                attempts.append(attempt)
+                rejected.append(attempt)
+                workflow.rejected_alternatives_json = json.dumps(rejected)
+                workflow.retrieval_result_json = json.dumps(
+                    {
+                        "status": "trying_next_suitable_paper",
+                        "attempts": attempts,
+                        "latest_failure": exc.reason,
+                    },
+                )
+                workflow.selected_publication_id = None
+                log_workflow_transition(
+                    workflow,
+                    from_stage="Retrieving PDF",
+                    to_stage="Selecting next paper",
+                    publication=selection.publication,
+                    selection=selection,
+                    exception=exc,
+                    reason=exc.reason,
+                )
+                continue
+            attempts.append(
+                retrieval_attempt_record(
+                    selection=selection,
+                    attempted=True,
+                    status="retrieved",
+                    rejection_reason=None,
+                ),
+            )
+            selected_publication = selection.publication
+            selected_selection = selection
+            break
+
+        if paper_file is None or selected_publication is None or selected_selection is None:
+            workflow.status = "WAITING_FOR_MANUAL_PAPER_SELECTION"
+            workflow.failed_stage = None
+            workflow.current_stage = "Selecting next paper"
+            workflow.failure_reason = (
+                "All automatically suitable publications failed lawful PDF retrieval. "
+                "Manual paper selection is required before PDF retrieval or analysis."
+            )
+            workflow.selected_publication_id = None
+            workflow.retrieval_result_json = json.dumps(
+                {
+                    "status": "all_suitable_papers_exhausted",
+                    "attempts": attempts,
+                    "remaining_alternatives": 0,
+                },
+            )
+            return workflow
+
+        workflow.retrieval_result_json = json.dumps(
+            {
+                "status": "retrieved",
+                "attempts": attempts,
+                "paper_file_id": paper_file.id,
+                "source_url": paper_file.source_url,
+                "license_note": paper_file.license_note,
+                "sha256": paper_file.sha256,
+                "page_count": paper_file.page_count,
+            },
         )
+        workflow.selection_reasons_json = json.dumps(selected_selection.reasons)
+        workflow.selected_publication_id = selected_publication.id
+        workflow.selection_score = selected_selection.score
         workflow.paper_file_id = paper_file.id
 
         set_stage(workflow, "Extracting text")
@@ -148,7 +261,7 @@ def run_research_workflow(
             session,
             candidate=candidate,
             paper_file=paper_file,
-            publication=selection.publication,
+            publication=selected_publication,
             provider=provider,
             workflow=workflow,
         )
@@ -211,6 +324,12 @@ def run_research_workflow(
         fail_workflow(workflow, exc.stage, exc.reason)
     except (AIProviderError, AIRequestLimitError, ValueError) as exc:
         fail_workflow(workflow, workflow.current_stage, str(exc))
+    except Exception as exc:
+        fail_workflow(
+            workflow,
+            workflow.current_stage,
+            f"Unexpected workflow error ({exc.__class__.__name__}): {exc}",
+        )
     return workflow
 
 
@@ -260,48 +379,9 @@ def publication_scores_need_portfolio_refresh(
 
 
 def select_best_publication(session: Session, *, candidate: Candidate) -> SelectionResult:
-    rows = list_candidate_publications(session, candidate.id, sort="best")
-    rejected: list[dict[str, object]] = []
-    metadata_only: Publication | None = rows[0][1] if rows else None
-    profile = latest_researcher_profile(session, candidate.id)
-    scored_rows = []
-    for authorship, publication in rows:
-        usefulness = email_usefulness_for_publication(
-            publication=publication,
-            authorship=authorship,
-            profile=profile,
-        )
-        scored_rows.append(
-            (authorship.score + usefulness.score, authorship, publication, usefulness),
-        )
-    selected: SelectionResult | None = None
-    for score, authorship, publication, usefulness in sorted(
-        scored_rows,
-        key=lambda item: item[0],
-        reverse=True,
-    ):
-        reasons = suitability_rejections(authorship, publication)
-        reasons.extend(usefulness.rejections)
-        if reasons:
-            rejected.append(
-                {
-                    "publication_id": publication.id,
-                    "title": publication.title,
-                    "score": score,
-                    "reasons": reasons,
-                },
-            )
-            continue
-        if selected is None:
-            selected = SelectionResult(
-                authorship=authorship,
-                publication=publication,
-                reasons=selection_reasons(authorship, publication, usefulness),
-                rejected=rejected,
-                score=score,
-                metadata_only=metadata_only,
-            )
-    if selected is not None:
+    suitable, rejected, metadata_only = ranked_publication_selections(session, candidate=candidate)
+    if suitable:
+        selected = suitable[0]
         return SelectionResult(
             authorship=selected.authorship,
             publication=selected.publication,
@@ -320,7 +400,80 @@ def select_best_publication(session: Session, *, candidate: Candidate) -> Select
     )
 
 
-def suitability_rejections(authorship: Authorship, publication: Publication) -> list[str]:
+def ranked_publication_selections(
+    session: Session,
+    *,
+    candidate: Candidate,
+) -> tuple[list[RankedPublicationSelection], list[dict[str, object]], Publication | None]:
+    rows = list_candidate_publications(session, candidate.id, sort="best")
+    rejected: list[dict[str, object]] = []
+    metadata_only: Publication | None = rows[0][1] if rows else None
+    profile = latest_researcher_profile(session, candidate.id)
+    scored_rows = []
+    for authorship, publication in rows:
+        usefulness = email_usefulness_for_publication(
+            publication=publication,
+            authorship=authorship,
+            profile=profile,
+        )
+        scored_rows.append(
+            (authorship.score + usefulness.score, authorship, publication, usefulness),
+        )
+    suitable: list[RankedPublicationSelection] = []
+    for rank, (score, authorship, publication, usefulness) in enumerate(
+        sorted(
+            scored_rows,
+            key=lambda item: item[0],
+            reverse=True,
+        ),
+        start=1,
+    ):
+        eligibility = pdf_eligibility_for_publication(publication)
+        reasons = suitability_rejections(
+            authorship,
+            publication,
+            pdf_eligibility=eligibility,
+        )
+        reasons.extend(usefulness.rejections)
+        if reasons:
+            rejected.append(
+                {
+                    **retrieval_attempt_record(
+                        selection=RankedPublicationSelection(
+                            authorship=authorship,
+                            publication=publication,
+                            reasons=[],
+                            score=score,
+                            rank=rank,
+                            pdf_eligibility=eligibility,
+                        ),
+                        attempted=False,
+                        status="rejected_before_retrieval",
+                        rejection_reason="; ".join(reasons),
+                    ),
+                    "reasons": reasons,
+                },
+            )
+            continue
+        suitable.append(
+            RankedPublicationSelection(
+                authorship=authorship,
+                publication=publication,
+                reasons=selection_reasons(authorship, publication, usefulness, eligibility),
+                score=score,
+                rank=rank,
+                pdf_eligibility=eligibility,
+            ),
+        )
+    return suitable, rejected, metadata_only
+
+
+def suitability_rejections(
+    authorship: Authorship,
+    publication: Publication,
+    *,
+    pdf_eligibility: PDFEligibility | None = None,
+) -> list[str]:
     reasons: list[str] = []
     warnings = _json_list(authorship.warnings_json)
     if not authorship.confirmed_author_present:
@@ -332,8 +485,9 @@ def suitability_rejections(authorship: Authorship, publication: Publication) -> 
         reasons.append("Portfolio input is unavailable, so automatic ranking is blocked.")
     elif components.get("portfolio_similarity", 0.0) < 8.0:
         reasons.append("Portfolio fit is too weak for automatic analysis.")
-    if plan_publication_pdf_retrieval(publication) is None:
-        reasons.append("No lawful full text is available.")
+    eligibility = pdf_eligibility or pdf_eligibility_for_publication(publication)
+    if not eligibility.eligible:
+        reasons.append(eligibility.rejection_reason or "No lawful full text is available.")
     if authorship.author_count and authorship.author_count > 25:
         reasons.append("Author list is too large for automatic selection.")
     if authorship.role not in {"first_author", "last_author", "corresponding_author"}:
@@ -362,14 +516,89 @@ def selection_reasons(
     authorship: Authorship,
     publication: Publication,
     usefulness: EmailUsefulness,
+    pdf_eligibility: PDFEligibility | None = None,
 ) -> list[str]:
     reasons = _score_reasons(authorship)
     reasons.insert(0, f"Highest suitable outreach score: {authorship.score:.0f}.")
-    if publication.pdf_url or publication.arxiv_id or publication.open_access_url:
-        reasons.append("Lawful full text source was available.")
+    eligibility = pdf_eligibility or pdf_eligibility_for_publication(publication)
+    if eligibility.eligible:
+        reasons.append(f"Lawful full text source was available: {eligibility.source_type}.")
     reasons.append(f"Email usefulness score: {usefulness.score:.0f}.")
     reasons.extend(usefulness.reasons)
     return reasons
+
+
+def retrieval_attempt_record(
+    *,
+    selection: RankedPublicationSelection,
+    attempted: bool,
+    status: str,
+    rejection_reason: str | None,
+) -> dict[str, object]:
+    components = _score_components(selection.authorship)
+    eligibility = selection.pdf_eligibility
+    return {
+        "publication_id": selection.publication.id,
+        "title": selection.publication.title,
+        "rank": selection.rank,
+        "selection_score": round(selection.score, 2),
+        "portfolio_similarity": components.get("portfolio_similarity"),
+        "pdf_eligibility_type": eligibility.source_type,
+        "canonical_pdf_url": eligibility.canonical_pdf_url,
+        "canonical_pdf_url_host": url_host(eligibility.canonical_pdf_url),
+        "landing_page_url": eligibility.landing_page_url,
+        "lawful_source_reason": eligibility.lawful_source_reason,
+        "retrieval_priority": eligibility.retrieval_priority,
+        "retrieval_attempted": attempted,
+        "retrieval_status": status,
+        "content_type": None,
+        "size": None,
+        "validation_result": "not_attempted" if not attempted else status,
+        "rejection_reason": rejection_reason or eligibility.rejection_reason,
+    }
+
+
+def log_workflow_transition(
+    workflow: ResearchWorkflowRun,
+    *,
+    from_stage: str,
+    to_stage: str,
+    publication: Publication | None = None,
+    selection: RankedPublicationSelection | None = None,
+    exception: Exception | None = None,
+    reason: str | None = None,
+) -> None:
+    eligibility = selection.pdf_eligibility if selection else None
+    logger.info(
+        "workflow_transition",
+        extra={
+            "workflow_run_id": workflow.id,
+            "candidate_id": workflow.candidate_id,
+            "publication_id": publication.id if publication else None,
+            "publication_title": publication.title if publication else None,
+            "ranking_position": selection.rank if selection else None,
+            "total_score": selection.score if selection else None,
+            "portfolio_similarity": (
+                _score_components(selection.authorship).get("portfolio_similarity")
+                if selection
+                else None
+            ),
+            "pdf_eligibility_type": eligibility.source_type if eligibility else None,
+            "canonical_pdf_url_host": (
+                url_host(eligibility.canonical_pdf_url) if eligibility else None
+            ),
+            "state_from": from_stage,
+            "state_to": to_stage,
+            "exception_type": exception.__class__.__name__ if exception else None,
+            "failure_reason": reason,
+        },
+    )
+
+
+def url_host(url: str | None) -> str | None:
+    if not url:
+        return None
+    return urlparse(url).hostname
 
 
 def retrieve_selected_pdf(

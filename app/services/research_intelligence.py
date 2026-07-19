@@ -12,7 +12,7 @@ from app.models.candidate import Candidate
 from app.models.intelligence import ResearcherProfile
 from app.models.publication import Authorship, Publication
 from app.services.metadata import list_candidate_publications
-from app.services.retrieval import plan_publication_pdf_retrieval
+from app.services.retrieval import pdf_eligibility_for_publication
 
 RESEARCHER_PROFILE_PROMPT_VERSION = "researcher-profile-v1"
 GENERIC_TERMS = {
@@ -285,11 +285,12 @@ def email_usefulness_for_publication(
     score = 0.0
     reasons: list[str] = []
     rejections: list[str] = []
-    if plan_publication_pdf_retrieval(publication) is not None:
+    eligibility = pdf_eligibility_for_publication(publication)
+    if eligibility.eligible:
         score += 20
-        reasons.append("Lawful full text is available.")
+        reasons.append(f"Lawful full text is available: {eligibility.source_type}.")
     else:
-        rejections.append("No usable lawful full text.")
+        rejections.append(eligibility.rejection_reason or "No usable lawful full text.")
     if authorship.role in {"first_author", "last_author", "corresponding_author"}:
         score += 18
         reasons.append(f"Candidate role is {authorship.role.replace('_', ' ')}.")

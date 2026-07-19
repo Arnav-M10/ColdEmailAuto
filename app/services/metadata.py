@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.models.candidate import Candidate
 from app.models.publication import Authorship, Publication
+from app.services.retrieval import pdf_eligibility_for_publication
 from app.services.web_safety import SafeFetchError, validate_url
 
 TITLE_WORD_RE = re.compile(r"[a-z0-9]+")
@@ -124,6 +125,9 @@ class CandidatePublicationReview:
     score_reasons: list[str]
     full_text_label: str
     full_text_available: bool
+    pdf_eligibility_type: str
+    canonical_pdf_url: str | None
+    pdf_rejection_reason: str | None
 
 
 class HTTPJSONClient:
@@ -847,9 +851,9 @@ def score_publication_for_candidate(
     components["recency"] = recency_points
     score += recency_points
 
-    if metadata.pdf_url or metadata.open_access_url:
+    if metadata_has_retrievable_pdf(metadata):
         pdf_points = 7.0
-        reasons.append("Lawful full text or open-access page is available.")
+        reasons.append("Lawful retrievable PDF source is available.")
     else:
         pdf_points = 0.0
     components["lawful_pdf_availability"] = pdf_points
@@ -927,6 +931,26 @@ def citation_score(citation_count: int) -> float:
     if citation_count <= 0:
         return 0.0
     return round(min(5.0, log10(citation_count + 1) * 1.8), 2)
+
+
+def metadata_has_retrievable_pdf(metadata: PublicationMetadata) -> bool:
+    publication = Publication(
+        title=metadata.title,
+        title_fingerprint=title_fingerprint(metadata.title),
+        year=metadata.year,
+        venue=metadata.venue,
+        doi=metadata.doi,
+        arxiv_id=metadata.arxiv_id,
+        openalex_id=metadata.openalex_id,
+        source=metadata.source,
+        open_access_url=metadata.open_access_url,
+        pdf_url=metadata.pdf_url,
+        author_count=len(metadata.authors) or None,
+        citation_count=metadata.citation_count,
+        work_type=metadata.work_type,
+        metadata_json=json.dumps(metadata.raw),
+    )
+    return pdf_eligibility_for_publication(publication).eligible
 
 
 def is_review_article(metadata: PublicationMetadata) -> bool:
@@ -1269,14 +1293,19 @@ def candidate_has_publications_for_openalex_author(
 
 
 def full_text_label(publication: Publication) -> str:
-    if publication.pdf_url and publication.arxiv_id:
-        return "PDF URL and arXiv available"
-    if publication.pdf_url:
-        return "PDF URL available"
-    if publication.arxiv_id:
+    eligibility = pdf_eligibility_for_publication(publication)
+    if eligibility.source_type == "ARXIV_ID_AVAILABLE":
         return "arXiv PDF available"
-    if publication.open_access_url:
+    if eligibility.source_type == "DIRECT_PDF_URL":
+        return "Direct PDF URL available"
+    if eligibility.source_type == "OPEN_ACCESS_LANDING_PAGE_ONLY":
         return "Open-access landing page only"
+    if eligibility.source_type == "DOI_ONLY":
+        return "DOI only"
+    if eligibility.source_type == "REPOSITORY_RECORD_WITHOUT_PDF":
+        return "Repository record without PDF"
+    if eligibility.source_type == "INVALID_OR_UNSAFE_URL":
+        return "Invalid or unsafe URL"
     return "No lawful full text recorded"
 
 
@@ -1453,6 +1482,7 @@ def list_candidate_publication_reviews(
 ) -> list[CandidatePublicationReview]:
     reviews: list[CandidatePublicationReview] = []
     for authorship, publication in list_candidate_publications(session, candidate_id, sort=sort):
+        eligibility = pdf_eligibility_for_publication(publication)
         warnings = json.loads(authorship.warnings_json or "[]")
         if not isinstance(warnings, list):
             warnings = []
@@ -1475,7 +1505,10 @@ def list_candidate_publication_reviews(
                 score_components=components,
                 score_reasons=reasons,
                 full_text_label=full_text_label(publication),
-                full_text_available=bool(publication.pdf_url or publication.arxiv_id),
+                full_text_available=eligibility.eligible,
+                pdf_eligibility_type=eligibility.source_type,
+                canonical_pdf_url=eligibility.canonical_pdf_url,
+                pdf_rejection_reason=eligibility.rejection_reason,
             ),
         )
     return reviews

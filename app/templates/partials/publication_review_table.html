@@ -60,6 +60,13 @@
               <span class="status-chip {% if review.full_text_available %}ok{% else %}attention{% endif %}">
                 {{ review.full_text_label }}
               </span>
+              <span class="meta-line">{{ review.pdf_eligibility_type|replace("_", " ")|title }}</span>
+              {% if review.canonical_pdf_url %}
+                <span class="meta-line">Canonical PDF: {{ review.canonical_pdf_url }}</span>
+              {% endif %}
+              {% if review.pdf_rejection_reason %}
+                <span class="meta-line">{{ review.pdf_rejection_reason }}</span>
+              {% endif %}
             </td>
             <td>
               {% if review.warnings %}
