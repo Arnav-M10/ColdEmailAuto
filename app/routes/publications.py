@@ -28,9 +28,9 @@ from app.services.metadata import (
 from app.services.research_workflow import (
     latest_workflow_run,
     run_research_workflow,
-    workflow_should_open_publication_selection,
 )
 from app.services.retrieval import retrieve_publication_pdf
+from app.services.workflow_navigation import resumed_workflow_destination
 
 router = APIRouter()
 MIN_CONFIDENT_AUTHOR_SCORE = 0.75
@@ -101,17 +101,7 @@ def workflow_or_selection_redirect(
         candidate=candidate,
         workflow=waiting_workflow,
     )
-    if workflow.draft_id is not None:
-        return RedirectResponse(f"/drafts/{workflow.draft_id}/manual-review", status_code=303)
-    if workflow.paper_file_id is not None:
-        return RedirectResponse(f"/papers/{workflow.paper_file_id}", status_code=303)
-    if workflow.status == "WAITING_FOR_PORTFOLIO_INPUT":
-        return RedirectResponse(f"/candidates/{candidate.id}", status_code=303)
-    if workflow_should_open_publication_selection(workflow):
-        return RedirectResponse(publication_selection_url(candidate.id), status_code=303)
-    if workflow.selected_publication_id is not None:
-        return RedirectResponse(f"/candidates/{candidate.id}", status_code=303)
-    return RedirectResponse(f"/candidates/{candidate.id}", status_code=303)
+    return RedirectResponse(resumed_workflow_destination(candidate.id, workflow), status_code=303)
 
 
 def author_confirmation_url(candidate_id: int, *, resume_workflow: bool = False) -> str:

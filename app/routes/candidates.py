@@ -33,8 +33,8 @@ from app.services.research_workflow import (
     run_research_workflow,
     should_display_workflow,
     workflow_review_context,
-    workflow_should_open_publication_selection,
 )
+from app.services.workflow_navigation import automatic_workflow_destination
 
 router = APIRouter()
 RESUMABLE_WORKFLOW_STATUSES = {
@@ -222,21 +222,7 @@ def candidate_resume_research_workflow(
 
 
 def workflow_redirect(candidate_id: int, workflow: ResearchWorkflowRun) -> RedirectResponse:
-    if workflow.status == "WAITING_FOR_AUTHOR_CONFIRMATION":
-        return RedirectResponse(
-            f"/candidates/{candidate_id}/publications/openalex-author/confirm"
-            f"?resume_workflow=1&workflow_id={workflow.id}",
-            status_code=303,
-        )
-    if workflow.draft_id is not None:
-        return RedirectResponse(f"/drafts/{workflow.draft_id}/manual-review", status_code=303)
-    if workflow.status == "WAITING_FOR_PORTFOLIO_INPUT":
-        return RedirectResponse(f"/candidates/{candidate_id}", status_code=303)
-    if workflow_should_open_publication_selection(workflow):
-        return RedirectResponse(f"/candidates/{candidate_id}/publications/select", status_code=303)
-    if workflow.paper_file_id is not None:
-        return RedirectResponse(f"/papers/{workflow.paper_file_id}", status_code=303)
-    return RedirectResponse(f"/candidates/{candidate_id}", status_code=303)
+    return RedirectResponse(automatic_workflow_destination(candidate_id, workflow), status_code=303)
 
 
 @router.post("/candidates/{candidate_id}/papers")
