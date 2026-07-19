@@ -26,7 +26,11 @@ from app.services.metadata import (
     retrieve_recent_publications_for_candidate,
     upsert_publication_with_authorship,
 )
-from app.services.research_workflow import latest_workflow_run, run_research_workflow
+from app.services.research_workflow import (
+    latest_workflow_run,
+    run_research_workflow,
+    workflow_should_open_publication_selection,
+)
 from app.services.retrieval import retrieve_publication_pdf
 
 router = APIRouter()
@@ -101,7 +105,7 @@ def workflow_or_selection_redirect(
         return RedirectResponse(f"/papers/{workflow.paper_file_id}", status_code=303)
     if workflow.status == "WAITING_FOR_PORTFOLIO_INPUT":
         return RedirectResponse(f"/candidates/{candidate.id}", status_code=303)
-    if workflow.status == "WAITING_FOR_MANUAL_PAPER_SELECTION":
+    if workflow_should_open_publication_selection(workflow):
         return RedirectResponse(publication_selection_url(candidate.id), status_code=303)
     if workflow.selected_publication_id is not None:
         return RedirectResponse(f"/candidates/{candidate.id}", status_code=303)

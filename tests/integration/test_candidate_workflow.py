@@ -516,6 +516,103 @@ def test_run_research_workflow_auto_selects_single_eligible_paper_without_select
     assert "Select Publication" not in response.text
 
 
+def test_run_research_workflow_does_not_render_selection_for_single_eligible_paper_pause(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    client, session_factory = build_test_context(tmp_path)
+    with session_factory() as session:
+        candidate = create_candidate(
+            session,
+            full_name="Professor Jane Doe",
+            title="Assistant Professor",
+            institution="Example University",
+            department="Physics",
+            research_area="magnetic fields computational astrophysics",
+            official_profile_url="https://example.edu/jane",
+            notes=None,
+        )
+        candidate.openalex_author_id = "https://openalex.org/A1"
+        publication = Publication(
+            title="Single Eligible Arxiv Paper",
+            title_fingerprint=title_fingerprint("Single Eligible Arxiv Paper"),
+            year=2025,
+            venue="Example Journal",
+            doi="10.1000/single-eligible",
+            arxiv_id="2504.33333",
+            openalex_id="https://openalex.org/WSINGLE",
+            source="openalex",
+            open_access_url="https://arxiv.org/abs/2504.33333",
+            pdf_url="https://arxiv.org/pdf/2504.33333",
+            author_count=3,
+            citation_count=9,
+            work_type="article",
+            metadata_json="{}",
+        )
+        session.add(publication)
+        session.flush()
+        session.add(
+            Authorship(
+                candidate_id=candidate.id,
+                publication_id=publication.id,
+                author_position=2,
+                author_count=3,
+                openalex_author_id="https://openalex.org/A1",
+                confirmed_author_present=True,
+                corresponding_author=False,
+                role="middle_author",
+                identity_confidence=0.95,
+                match_status="MATCHED",
+                score=91.0,
+                connection_summary="magnetic fields",
+                warnings_json="[]",
+                score_details_json=(
+                    '{"components":{"portfolio_similarity":30.0},'
+                    '"reasons":["Portfolio similarity matched: magnetic fields.",'
+                    '"Confirmed author appears at position 2.","Author count: 3.",'
+                    '"Recent publication from 2025."]}'
+                ),
+            ),
+        )
+        session.commit()
+
+    available = SimpleNamespace(
+        available=True,
+        text="magnetic fields computational astrophysics survey analysis",
+        status="AVAILABLE",
+        reason=None,
+        cache_path="data/cache/portfolio_text/test.txt",
+    )
+    monkeypatch.setattr(
+        "app.services.research_workflow.load_research_portfolio_text_status",
+        lambda: available,
+    )
+
+    def failing_retrieve_publication_pdf(*args: Any, **kwargs: Any) -> PaperFile:
+        raise ValueError("Synthetic PDF retrieval failure after automatic selection.")
+
+    monkeypatch.setattr(
+        "app.services.research_workflow.retrieve_publication_pdf",
+        failing_retrieve_publication_pdf,
+    )
+
+    response = client.post(
+        "/candidates/1/research-workflow/run",
+        data={"csrf": csrf_token()},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert str(response.url).endswith("/candidates/1")
+    assert "Select Publication" not in response.text
+    assert "<h2>Select Publication</h2>" not in response.text
+    assert "Single Eligible Arxiv Paper" in response.text
+    with session_factory() as session:
+        workflow = session.scalars(select(ResearchWorkflowRun)).one()
+        assert workflow.status == "WAITING_FOR_MANUAL_PAPER_SELECTION"
+        assert "all_suitable_papers_exhausted" in workflow.retrieval_result_json
+
+
 def test_fetch_publications_does_not_start_research_workflow(tmp_path: Path) -> None:
     client, session_factory = build_test_context(tmp_path)
     with session_factory() as session:

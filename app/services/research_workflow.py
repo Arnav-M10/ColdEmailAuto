@@ -61,6 +61,10 @@ WORKFLOW_STAGES = [
 ]
 ANALYSIS_PROMPT_VERSION = "paper-analysis-v1"
 AUTOMATIC_SELECTION_TIE_EPSILON = 0.01
+PUBLICATION_SELECTION_WORKFLOW_REASONS = {
+    "automatic_selection_tie",
+    "ranking_exhausted",
+}
 logger = logging.getLogger("professor_outreach.workflow")
 
 
@@ -261,7 +265,7 @@ def run_research_workflow(
             workflow.current_stage = "Selecting next paper"
             workflow.failure_reason = (
                 "All automatically suitable publications failed lawful PDF retrieval. "
-                "Manual paper selection is required before PDF retrieval or analysis."
+                "Review the retrieval details or choose a different paper as an optional override."
             )
             workflow.selected_publication_id = None
             workflow.retrieval_result_json = json.dumps(
@@ -385,6 +389,13 @@ def should_display_workflow(workflow: ResearchWorkflowRun | None) -> bool:
         return True
     retrieval_result = _json_object(workflow.retrieval_result_json)
     return bool(retrieval_result.get("status"))
+
+
+def workflow_should_open_publication_selection(workflow: ResearchWorkflowRun) -> bool:
+    if workflow.status != "WAITING_FOR_MANUAL_PAPER_SELECTION":
+        return False
+    retrieval_result = _json_object(workflow.retrieval_result_json)
+    return str(retrieval_result.get("status")) in PUBLICATION_SELECTION_WORKFLOW_REASONS
 
 
 def ensure_publications(

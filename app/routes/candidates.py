@@ -33,6 +33,7 @@ from app.services.research_workflow import (
     run_research_workflow,
     should_display_workflow,
     workflow_review_context,
+    workflow_should_open_publication_selection,
 )
 
 router = APIRouter()
@@ -229,7 +230,7 @@ def workflow_redirect(candidate_id: int, workflow: ResearchWorkflowRun) -> Redir
         return RedirectResponse(f"/drafts/{workflow.draft_id}/manual-review", status_code=303)
     if workflow.status == "WAITING_FOR_PORTFOLIO_INPUT":
         return RedirectResponse(f"/candidates/{candidate_id}", status_code=303)
-    if workflow.status == "WAITING_FOR_MANUAL_PAPER_SELECTION":
+    if workflow_should_open_publication_selection(workflow):
         return RedirectResponse(f"/candidates/{candidate_id}/publications/select", status_code=303)
     if workflow.paper_file_id is not None:
         return RedirectResponse(f"/papers/{workflow.paper_file_id}", status_code=303)
