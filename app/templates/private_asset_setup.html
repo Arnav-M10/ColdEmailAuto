@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <h2>Private asset setup</h2>
+        <p>Upload required PDFs into private storage. These files are not served from static routes.</p>
+      </div>
+      <span class="status-pill">{% if setup_locked %}Locked{% elif asset_manifest.all_required_valid and portfolio_input_status.available %}Ready{% else %}Needs attention{% endif %}</span>
+    </div>
+
+    {% if setup_locked %}
+      <div class="empty-state attention-state">
+        <h3>Admin token required</h3>
+        <p>{{ setup_error }}</p>
+      </div>
+      <form class="inline-form workflow-message" method="get" action="/settings/private-assets">
+        {% if candidate_id %}
+          <input type="hidden" name="candidate_id" value="{{ candidate_id }}">
+        {% endif %}
+        <label>Admin setup token <input name="admin_token" type="password" autocomplete="off" required></label>
+        <button type="submit">Unlock Setup</button>
+      </form>
+    {% else %}
+
+    <dl class="detail-list">
+      <div><dt>Private asset directory</dt><dd>{{ settings.resolved_private_asset_dir }}</dd></div>
+      <div><dt>Resume path</dt><dd>{{ settings.resolved_resume_pdf_path }}</dd></div>
+      <div><dt>Research portfolio path</dt><dd>{{ settings.resolved_research_portfolio_pdf_path }}</dd></div>
+      <div><dt>Portfolio text</dt><dd>{{ portfolio_input_status.status|replace("_", " ")|title }}{% if portfolio_input_status.reason %} - {{ portfolio_input_status.reason }}{% endif %}</dd></div>
+    </dl>
+    {% endif %}
+  </section>
+
+  {% if not setup_locked %}
+    <section class="panel secondary-panel">
+      <div class="panel-header">
+        <div>
+          <h2>Status</h2>
+          <p>Only file metadata is stored in the manifest.</p>
+        </div>
+      </div>
+      <div class="asset-list">
+        {% for asset in asset_manifest.assets %}
+          <div class="asset-row">
+            <div>
+              <strong>{{ asset.label }}</strong>
+              <span>{{ asset.relative_path }}</span>
+            </div>
+            <div class="asset-state{% if asset.valid %} ok{% else %} bad{% endif %}">
+              {% if asset.valid %}
+                Available, {{ asset.page_count }} page{% if asset.page_count != 1 %}s{% endif %}
+              {% else %}
+                {{ asset.error }}
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="panel secondary-panel">
+      <div class="panel-header">
+        <div>
+          <h2>Upload PDFs</h2>
+          <p>Use the resume and research portfolio PDFs only. Portfolio text must be extractable.</p>
+        </div>
+      </div>
+      <form class="form-grid" method="post" action="/settings/private-assets/upload" enctype="multipart/form-data">
+        <input type="hidden" name="csrf" value="{{ csrf_token }}">
+        <input type="hidden" name="admin_token" value="{{ admin_token }}">
+        {% if candidate_id %}
+          <input type="hidden" name="candidate_id" value="{{ candidate_id }}">
+        {% endif %}
+        <label>Resume PDF <input name="resume_pdf" type="file" accept="application/pdf,.pdf"></label>
+        <label>Research portfolio PDF <input name="portfolio_pdf" type="file" accept="application/pdf,.pdf"></label>
+        <div class="form-actions wide"><button type="submit">Upload private assets</button></div>
+      </form>
+      {% if candidate_id %}
+        <form method="post" action="/candidates/{{ candidate_id }}/research-workflow/resume" class="inline-form">
+          <input type="hidden" name="csrf" value="{{ csrf_token }}">
+          <button type="submit" class="secondary-button">Resume Workflow</button>
+        </form>
+      {% endif %}
+    </section>
+  {% endif %}
+{% endblock %}

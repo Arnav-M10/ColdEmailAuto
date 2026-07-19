@@ -95,6 +95,10 @@ def run_research_workflow(
         ensure_publications(session, candidate=candidate, workflow=workflow)
         if workflow.status == "WAITING_FOR_AUTHOR_CONFIRMATION":
             return workflow
+        portfolio_status = load_research_portfolio_text_status()
+        if not portfolio_status.available:
+            wait_for_portfolio_input(workflow, portfolio_status.reason)
+            return workflow
         set_stage(workflow, "Understanding researcher")
         profile = build_or_reuse_researcher_profile(session, candidate=candidate)
         workflow.researcher_profile_id = profile.id
@@ -217,8 +221,6 @@ def ensure_publications(
     workflow: ResearchWorkflowRun,
 ) -> None:
     set_stage(workflow, "Finding publications")
-    if list_candidate_publications(session, candidate.id):
-        return
     if not candidate.openalex_author_id:
         workflow.status = "WAITING_FOR_AUTHOR_CONFIRMATION"
         workflow.failed_stage = None
@@ -226,7 +228,35 @@ def ensure_publications(
             "Confirm the OpenAlex author profile before the workflow retrieves publications."
         )
         return
+    existing_publications = list_candidate_publications(session, candidate.id)
+    portfolio_status = load_research_portfolio_text_status()
+    if existing_publications and not publication_scores_need_portfolio_refresh(
+        session,
+        candidate.id,
+        portfolio_available=portfolio_status.available,
+    ):
+        return
     retrieve_recent_publications_for_candidate(session, candidate=candidate)
+
+
+def publication_scores_need_portfolio_refresh(
+    session: Session,
+    candidate_id: int,
+    *,
+    portfolio_available: bool,
+) -> bool:
+    if not portfolio_available:
+        return False
+    authorships = session.scalars(
+        select(Authorship).where(Authorship.candidate_id == candidate_id),
+    )
+    for authorship in authorships:
+        warnings = _json_list(authorship.warnings_json)
+        if any(str(warning).startswith("PORTFOLIO_INPUT_UNAVAILABLE") for warning in warnings):
+            return True
+        if "portfolio_similarity" not in _score_components(authorship):
+            return True
+    return False
 
 
 def select_best_publication(session: Session, *, candidate: Candidate) -> SelectionResult:
@@ -486,6 +516,18 @@ def fail_workflow(workflow: ResearchWorkflowRun, stage: str, reason: str) -> Non
     workflow.failed_stage = stage
     workflow.failure_reason = reason
     workflow.current_stage = stage
+
+
+def wait_for_portfolio_input(workflow: ResearchWorkflowRun, reason: str | None) -> None:
+    workflow.status = "WAITING_FOR_PORTFOLIO_INPUT"
+    workflow.failed_stage = None
+    workflow.current_stage = "Loading portfolio input"
+    workflow.failure_reason = (
+        "PORTFOLIO_INPUT_UNAVAILABLE: "
+        f"{reason or 'Research portfolio text is unavailable.'} "
+        "Upload the private resume and research portfolio PDFs in Settings, then resume this "
+        "workflow."
+    )
 
 
 def prepare_workflow_for_resume(workflow: ResearchWorkflowRun) -> None:

@@ -17,7 +17,6 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.models.candidate import Candidate
 from app.models.publication import Authorship, Publication
-from app.services.assets import PORTFOLIO_PATH
 from app.services.web_safety import SafeFetchError, validate_url
 
 TITLE_WORD_RE = re.compile(r"[a-z0-9]+")
@@ -937,9 +936,10 @@ def is_review_article(metadata: PublicationMetadata) -> bool:
 
 
 def load_research_portfolio_text_status() -> PortfolioTextStatus:
-    root = get_settings().project_root
-    path = root / PORTFOLIO_PATH
-    source_path = str(PORTFOLIO_PATH)
+    settings = get_settings()
+    root = settings.project_root
+    path = settings.resolved_research_portfolio_pdf_path
+    source_path = display_portfolio_path(path, root)
     if not path.exists():
         return PortfolioTextStatus(
             available=False,
@@ -968,7 +968,7 @@ def load_research_portfolio_text_status() -> PortfolioTextStatus:
                 source_path=source_path,
             )
         digest = sha256(path.read_bytes()).hexdigest()
-        return _load_research_portfolio_text_status_cached(str(root), digest)
+        return _load_research_portfolio_text_status_cached(str(root), str(path), digest)
     except Exception as exc:
         return PortfolioTextStatus(
             available=False,
@@ -982,11 +982,12 @@ def load_research_portfolio_text_status() -> PortfolioTextStatus:
 @lru_cache(maxsize=8)
 def _load_research_portfolio_text_status_cached(
     project_root_value: str,
+    portfolio_path_value: str,
     portfolio_sha256: str,
 ) -> PortfolioTextStatus:
     root = Path(project_root_value)
-    path = root / PORTFOLIO_PATH
-    source_path = str(PORTFOLIO_PATH)
+    path = Path(portfolio_path_value)
+    source_path = display_portfolio_path(path, root)
     cache_path = (
         root
         / "data"
@@ -1051,6 +1052,13 @@ def _load_research_portfolio_text_status_cached(
 
 def clear_research_portfolio_text_cache() -> None:
     _load_research_portfolio_text_status_cached.cache_clear()
+
+
+def display_portfolio_path(path: Path, project_root: Path) -> str:
+    try:
+        return str(path.relative_to(project_root))
+    except ValueError:
+        return str(path)
 
 
 def load_research_portfolio_text() -> str:

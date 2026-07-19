@@ -443,7 +443,12 @@ def test_portfolio_text_status_reports_missing_pdf(tmp_path: Path, monkeypatch: 
     settings = get_settings()
     monkeypatch.setattr(
         "app.services.metadata.get_settings",
-        lambda: settings.model_copy(update={"project_root": tmp_path}),
+        lambda: settings.model_copy(
+            update={
+                "project_root": tmp_path,
+                "research_portfolio_pdf_path": tmp_path / "assets" / "arnav_research_portfolio.pdf",
+            },
+        ),
     )
     clear_research_portfolio_text_cache()
 
@@ -474,7 +479,12 @@ def test_portfolio_text_status_reports_empty_extraction(
 
     monkeypatch.setattr(
         "app.services.metadata.get_settings",
-        lambda: settings.model_copy(update={"project_root": tmp_path}),
+        lambda: settings.model_copy(
+            update={
+                "project_root": tmp_path,
+                "research_portfolio_pdf_path": portfolio,
+            },
+        ),
     )
     monkeypatch.setattr("app.services.metadata.PdfReader", EmptyReader)
     clear_research_portfolio_text_cache()
@@ -509,7 +519,12 @@ def test_portfolio_text_extraction_cache_is_reused(
 
     monkeypatch.setattr(
         "app.services.metadata.get_settings",
-        lambda: settings.model_copy(update={"project_root": tmp_path}),
+        lambda: settings.model_copy(
+            update={
+                "project_root": tmp_path,
+                "research_portfolio_pdf_path": portfolio,
+            },
+        ),
     )
     monkeypatch.setattr("app.services.metadata.PdfReader", TextReader)
     clear_research_portfolio_text_cache()
@@ -550,7 +565,12 @@ def test_zero_similarity_is_distinct_from_unavailable_portfolio(
     settings = get_settings()
     monkeypatch.setattr(
         "app.services.metadata.get_settings",
-        lambda: settings.model_copy(update={"project_root": tmp_path}),
+        lambda: settings.model_copy(
+            update={
+                "project_root": tmp_path,
+                "research_portfolio_pdf_path": tmp_path / "assets" / "arnav_research_portfolio.pdf",
+            },
+        ),
     )
     clear_research_portfolio_text_cache()
 

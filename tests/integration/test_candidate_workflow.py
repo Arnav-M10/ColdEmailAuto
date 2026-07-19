@@ -804,6 +804,243 @@ def test_research_workflow_waits_for_openalex_confirmation_then_resumes(
         assert selected.title == "Compact Binary Discovery in Time-Domain Surveys"
 
 
+def test_author_confirmation_waits_for_portfolio_without_manual_selection(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    client, session_factory = build_test_context(tmp_path)
+    with session_factory() as session:
+        create_candidate(
+            session,
+            full_name="Kevin Burdge",
+            title="Assistant Professor",
+            institution="MIT",
+            department="Physics",
+            research_area="compact binaries time-domain astrophysics",
+            official_profile_url="https://physics.mit.edu/faculty/kevin-burdge/",
+            notes=None,
+        )
+        add_email_address(
+            session,
+            candidate_id=1,
+            email="kevin@example.mit.edu",
+            source_url="https://physics.mit.edu/faculty/kevin-burdge/",
+            source_type="official_university_page",
+            confidence="HIGH",
+            verification_status="VERIFIED",
+        )
+        session.commit()
+
+    calls: list[str] = []
+
+    class FakeOpenAlexClient:
+        def search_author_candidates(self, candidate: Candidate) -> list[OpenAlexAuthorCandidate]:
+            calls.append(f"authors:{candidate.full_name}")
+            return [
+                OpenAlexAuthorCandidate(
+                    openalex_id="https://openalex.org/A123456",
+                    display_name="Kevin Burdge",
+                    orcid=None,
+                    institutions=["Massachusetts Institute of Technology"],
+                    works_count=94,
+                    recent_works_count=12,
+                    confidence=0.9,
+                    reasons=["Current affiliation matches MIT."],
+                    raw={},
+                    current_institutions=["Massachusetts Institute of Technology"],
+                    previous_institutions=["California Institute of Technology"],
+                    topics=["Astrophysics", "Compact binaries"],
+                    profile_url="https://openalex.org/A123456",
+                ),
+            ]
+
+        def works_for_author(
+            self,
+            openalex_author_id: str,
+            *,
+            from_year: int | None = None,
+        ) -> list[PublicationMetadata]:
+            calls.append(f"works:{openalex_author_id}:{from_year}")
+            return [
+                PublicationMetadata(
+                    title="Compact Binary Discovery in Time-Domain Surveys",
+                    year=2025,
+                    venue="Astrophysical Journal",
+                    doi="10.1000/waiting-portfolio",
+                    arxiv_id="2502.12345",
+                    openalex_id="https://openalex.org/W123",
+                    source="openalex",
+                    open_access_url="https://arxiv.org/abs/2502.12345",
+                    pdf_url="https://arxiv.org/pdf/2502.12345",
+                    authors=["Kevin Burdge", "Jane Doe"],
+                    author_institutions=["Massachusetts Institute of Technology"],
+                    raw={},
+                    citation_count=12,
+                    work_type="article",
+                    abstract_text="A time-domain survey analysis for compact binaries.",
+                    topics=["Astrophysics", "Compact binaries"],
+                    author_openalex_ids=["https://openalex.org/A123456", "https://openalex.org/A2"],
+                ),
+            ]
+
+    class FakeCrossrefClient:
+        def work_by_doi(self, doi: str | None) -> PublicationMetadata | None:
+            calls.append(f"crossref:{doi}")
+            return None
+
+    settings = get_settings()
+    unavailable = SimpleNamespace(
+        available=False,
+        text="",
+        status="PORTFOLIO_INPUT_UNAVAILABLE",
+        reason=(
+            "Research portfolio PDF is missing at "
+            "/data/private_assets/arnav_research_portfolio.pdf."
+        ),
+        cache_path=None,
+    )
+    monkeypatch.setattr(
+        "app.routes.publications.get_settings",
+        lambda: settings.model_copy(update={"auto_select_paper": False}),
+    )
+    monkeypatch.setattr("app.services.metadata.OpenAlexClient", FakeOpenAlexClient)
+    monkeypatch.setattr("app.services.metadata.CrossrefClient", FakeCrossrefClient)
+    monkeypatch.setattr(
+        "app.services.metadata.load_research_portfolio_text_status",
+        lambda: unavailable,
+    )
+    monkeypatch.setattr(
+        "app.services.research_workflow.load_research_portfolio_text_status",
+        lambda: unavailable,
+    )
+
+    confirmation = client.post(
+        "/candidates/1/research-workflow/run",
+        data={"csrf": csrf_token()},
+        follow_redirects=True,
+    )
+    assert confirmation.status_code == 200
+    assert "Confirm OpenAlex Author" in confirmation.text
+
+    response = client.post(
+        "/candidates/1/publications/openalex-author/confirm",
+        data={
+            "csrf": csrf_token(),
+            "selected_openalex_author_id": "https://openalex.org/A123456",
+            "resume_workflow": "1",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert str(response.url).endswith("/candidates/1")
+    assert "Waiting For Portfolio Input" in response.text
+    assert "PORTFOLIO_INPUT_UNAVAILABLE" in response.text
+    assert "Open secure setup" in response.text
+    assert "Select Publication" not in response.text
+    assert "Approve paper" not in response.text
+    assert "works:https://openalex.org/A123456:2021" in calls
+
+    with session_factory() as session:
+        workflows = list(session.scalars(select(ResearchWorkflowRun)))
+        assert len(workflows) == 1
+        assert workflows[0].status == "WAITING_FOR_PORTFOLIO_INPUT"
+        assert workflows[0].selected_publication_id is None
+
+    text_dir = settings.project_root / "data" / "cache" / "paper_text"
+    text_dir.mkdir(parents=True, exist_ok=True)
+    text_path = text_dir / "workflow-portfolio-resume.txt"
+    text_path.write_text(
+        "--- Page 1 --- The paper uses time-domain survey analysis for compact binaries.",
+        encoding="utf-8",
+    )
+
+    def fake_retrieve_publication_pdf(*args: Any, **kwargs: Any) -> PaperFile:
+        session = args[0]
+        candidate = kwargs["candidate"]
+        publication = kwargs["publication"]
+        paper = PaperFile(
+            candidate_id=candidate.id,
+            publication_id=publication.id,
+            original_filename="workflow-portfolio-resume.pdf",
+            stored_path="papers/test/workflow-portfolio-resume.pdf",
+            sha256="8" * 64,
+            size_bytes=512,
+            page_count=1,
+            parsed_text_path=str(text_path.relative_to(settings.project_root)),
+            source_url="https://arxiv.org/pdf/2502.12345",
+            license_note="arXiv public PDF.",
+            text_quality_json="{}",
+        )
+        session.add(paper)
+        session.flush()
+        return paper
+
+    provider = MockProvider(
+        PaperAnalysisOutput(
+            title="Compact Binary Discovery in Time-Domain Surveys",
+            research_question="How do time-domain surveys find compact binaries?",
+            motivation="The paper studies compact binary discovery.",
+            methods="The paper uses time-domain survey analysis for compact binaries.",
+            results="The paper reports a compact-binary discovery workflow.",
+            overclaim_risks="Do not imply independent verification.",
+            connection_to_arnav="scientific Python and survey analysis",
+            confidence=0.86,
+            evidence=[
+                EvidenceClaim(
+                    claim="the paper uses time-domain survey analysis",
+                    evidence_text=(
+                        "The paper uses time-domain survey analysis for compact binaries."
+                    ),
+                    page_number=1,
+                    section_name="Extracted text",
+                    classification=EvidenceClassification.EXPLICIT,
+                    confidence=0.9,
+                ),
+            ],
+        ),
+    )
+    available = SimpleNamespace(
+        available=True,
+        text="compact binaries time-domain astrophysics stellar dynamics survey analysis",
+        status="AVAILABLE",
+        reason=None,
+        cache_path="data/cache/portfolio_text/test.txt",
+    )
+    monkeypatch.setattr(
+        "app.services.metadata.load_research_portfolio_text_status",
+        lambda: available,
+    )
+    monkeypatch.setattr(
+        "app.services.research_workflow.load_research_portfolio_text_status",
+        lambda: available,
+    )
+    monkeypatch.setattr(
+        "app.services.research_workflow.retrieve_publication_pdf",
+        fake_retrieve_publication_pdf,
+    )
+    monkeypatch.setattr("app.services.research_workflow.get_ai_provider", lambda: provider)
+    monkeypatch.setattr("app.services.research_workflow.required_attachments_ready", lambda: True)
+
+    resumed = client.post(
+        "/candidates/1/research-workflow/resume",
+        data={"csrf": csrf_token()},
+        follow_redirects=True,
+    )
+
+    assert resumed.status_code == 200
+    assert str(resumed.url).endswith("/drafts/1/manual-review")
+    assert "Manual Outlook copy review" in resumed.text
+    assert "Select Publication" not in resumed.text
+    assert "Approve paper" not in resumed.text
+
+    with session_factory() as session:
+        workflows = list(session.scalars(select(ResearchWorkflowRun)))
+        assert len(workflows) == 1
+        assert workflows[0].status == "READY_FOR_REVIEW"
+        assert workflows[0].draft_id is not None
+
+
 def test_publication_linked_analysis_requires_paper_approval(tmp_path: Path) -> None:
     client, session_factory = build_test_context(tmp_path)
     with session_factory() as session:

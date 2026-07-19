@@ -92,6 +92,8 @@ def workflow_or_selection_redirect(db: Session, candidate: Candidate) -> Redirec
         return RedirectResponse(f"/drafts/{workflow.draft_id}/manual-review", status_code=303)
     if workflow.paper_file_id is not None:
         return RedirectResponse(f"/papers/{workflow.paper_file_id}", status_code=303)
+    if workflow.status == "WAITING_FOR_PORTFOLIO_INPUT":
+        return RedirectResponse(f"/candidates/{candidate.id}", status_code=303)
     if workflow.status == "WAITING_FOR_MANUAL_PAPER_SELECTION":
         return RedirectResponse(publication_selection_url(candidate.id), status_code=303)
     if workflow.selected_publication_id is not None:

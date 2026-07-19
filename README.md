@@ -131,11 +131,33 @@ Using `python -m uvicorn` keeps startup tied to the installed Python environment
 executable shim is not on `PATH`. The FastAPI application object is `app` in `app/main.py`, so
 `app.main:app` is the correct import target.
 
-Required private PDFs under `assets/` are intentionally ignored by Git. A Railway deployment built
-only from the repository will not have `assets/arnav_resume.pdf` or
-`assets/arnav_research_portfolio.pdf` unless they are provided through a private deployment
-artifact or persistent volume. The workflow now reports `PORTFOLIO_INPUT_UNAVAILABLE` instead of
-treating missing portfolio text as a real zero-similarity score.
+Required private PDFs are intentionally ignored by Git. A Railway deployment built only from the
+repository will not have your resume or research portfolio unless you provide them through private
+storage. The workflow reports `PORTFOLIO_INPUT_UNAVAILABLE` and pauses as
+`WAITING_FOR_PORTFOLIO_INPUT` instead of treating missing portfolio text as a real zero-similarity
+score or sending you to manual paper selection.
+
+For Railway:
+
+1. Create a persistent volume.
+2. Mount it at `/data`.
+3. Set these environment variables:
+
+```bash
+PRIVATE_ASSET_DIR=/data/private_assets
+RESUME_PDF_PATH=/data/private_assets/arnav_resume.pdf
+RESEARCH_PORTFOLIO_PDF_PATH=/data/private_assets/arnav_research_portfolio.pdf
+ADMIN_SETUP_TOKEN=use-a-long-random-secret
+```
+
+4. Deploy the app.
+5. Open Settings, then the private asset setup page with your setup token:
+   `/settings/private-assets?admin_token=use-a-long-random-secret`
+6. Upload `arnav_resume.pdf` and `arnav_research_portfolio.pdf`.
+7. Confirm both files and portfolio text show as available.
+8. Return to the candidate and click `Resume Workflow` if a run was waiting for portfolio input.
+
+The private PDFs are stored outside `/static` and are not exposed through a public file route.
 
 Validate required local assets and refresh their ignored hash manifest:
 

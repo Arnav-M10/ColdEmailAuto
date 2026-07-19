@@ -12,6 +12,7 @@ from app.models.email_address import EmailAddress
 from app.models.outreach import OutreachEvent
 from app.models.paper import PaperFile
 from app.models.publication import Publication
+from app.models.workflow import ResearchWorkflowRun
 from app.security.csrf import csrf_token, validate_csrf_token
 from app.services.candidates import (
     add_email_address,
@@ -34,6 +35,12 @@ from app.services.research_workflow import (
 )
 
 router = APIRouter()
+RESUMABLE_WORKFLOW_STATUSES = {
+    "FAILED",
+    "WAITING_FOR_AUTHOR_CONFIRMATION",
+    "WAITING_FOR_PORTFOLIO_INPUT",
+    "WAITING_FOR_MANUAL_PAPER_SELECTION",
+}
 
 
 def render(request: Request, template_name: str, context: dict[str, object]) -> HTMLResponse:
@@ -178,8 +185,38 @@ def candidate_run_research_workflow(
     candidate = get_candidate(db, candidate_id)
     if candidate is None:
         raise HTTPException(status_code=404)
-    workflow = run_research_workflow(db, candidate=candidate)
+    existing_workflow = latest_workflow_run(db, candidate_id)
+    workflow = run_research_workflow(
+        db,
+        candidate=candidate,
+        workflow=existing_workflow
+        if existing_workflow and existing_workflow.status in RESUMABLE_WORKFLOW_STATUSES
+        else None,
+    )
     db.commit()
+    return workflow_redirect(candidate_id, workflow)
+
+
+@router.post("/candidates/{candidate_id}/research-workflow/resume")
+def candidate_resume_research_workflow(
+    candidate_id: int,
+    csrf: str = Form(...),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    validate_csrf_token(csrf)
+    candidate = get_candidate(db, candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=404)
+    workflow = latest_workflow_run(db, candidate_id)
+    if workflow is None:
+        workflow = run_research_workflow(db, candidate=candidate)
+    else:
+        workflow = run_research_workflow(db, candidate=candidate, workflow=workflow)
+    db.commit()
+    return workflow_redirect(candidate_id, workflow)
+
+
+def workflow_redirect(candidate_id: int, workflow: ResearchWorkflowRun) -> RedirectResponse:
     if workflow.status == "WAITING_FOR_AUTHOR_CONFIRMATION":
         return RedirectResponse(
             f"/candidates/{candidate_id}/publications/openalex-author/confirm?resume_workflow=1",
@@ -187,10 +224,12 @@ def candidate_run_research_workflow(
         )
     if workflow.draft_id is not None:
         return RedirectResponse(f"/drafts/{workflow.draft_id}/manual-review", status_code=303)
+    if workflow.status == "WAITING_FOR_PORTFOLIO_INPUT":
+        return RedirectResponse(f"/candidates/{candidate_id}", status_code=303)
+    if workflow.status == "WAITING_FOR_MANUAL_PAPER_SELECTION":
+        return RedirectResponse(f"/candidates/{candidate_id}/publications/select", status_code=303)
     if workflow.paper_file_id is not None:
         return RedirectResponse(f"/papers/{workflow.paper_file_id}", status_code=303)
-    if workflow.selected_publication_id is not None:
-        return RedirectResponse(f"/candidates/{candidate_id}/publications/select", status_code=303)
     return RedirectResponse(f"/candidates/{candidate_id}", status_code=303)
 
 

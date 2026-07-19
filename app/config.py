@@ -51,10 +51,40 @@ class Settings(BaseSettings):
     )
     ai_require_free_tier: bool = Field(default=True, validation_alias="AI_REQUIRE_FREE_TIER")
     auto_select_paper: bool = Field(default=True, validation_alias="AUTO_SELECT_PAPER")
+    private_asset_dir: Path = Field(
+        default=Path("/data/private_assets"),
+        validation_alias="PRIVATE_ASSET_DIR",
+    )
+    resume_pdf_path: Path | None = Field(default=None, validation_alias="RESUME_PDF_PATH")
+    research_portfolio_pdf_path: Path | None = Field(
+        default=None,
+        validation_alias="RESEARCH_PORTFOLIO_PDF_PATH",
+    )
+    admin_setup_token: str | None = Field(default=None, validation_alias="ADMIN_SETUP_TOKEN")
     project_root: Path = Path(__file__).resolve().parent.parent
     assets_dir: Path = project_root / "assets"
     logs_dir: Path = project_root / "logs"
     drafts_only_mode: bool = True
+
+    def resolve_path(self, path: Path) -> Path:
+        return path if path.is_absolute() else self.project_root / path
+
+    @property
+    def resolved_private_asset_dir(self) -> Path:
+        return self.resolve_path(self.private_asset_dir)
+
+    @property
+    def resolved_resume_pdf_path(self) -> Path:
+        return self.resolve_path(
+            self.resume_pdf_path or self.resolved_private_asset_dir / "arnav_resume.pdf",
+        )
+
+    @property
+    def resolved_research_portfolio_pdf_path(self) -> Path:
+        return self.resolve_path(
+            self.research_portfolio_pdf_path
+            or self.resolved_private_asset_dir / "arnav_research_portfolio.pdf",
+        )
 
 
 @lru_cache

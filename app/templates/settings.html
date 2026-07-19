@@ -13,7 +13,8 @@
       <div><dt>Database</dt><dd>{{ settings.database_url }}</dd></div>
       <div><dt>Profile</dt><dd>{{ profile.name }} - {{ profile.program }}</dd></div>
       <div><dt>Attachments</dt><dd>{% if asset_manifest.all_required_valid %}Ready{% else %}Needs attention{% endif %}</dd></div>
-      <div><dt>External sources</dt><dd>Disabled in Phase 0.</dd></div>
+      <div><dt>Private asset directory</dt><dd>{{ settings.resolved_private_asset_dir }}</dd></div>
+      <div><dt>Persistent storage path configured</dt><dd>{% if settings.resolved_private_asset_dir.is_absolute() %}Yes{% else %}No{% endif %}</dd></div>
     </dl>
   </section>
 
@@ -40,6 +41,9 @@
           </div>
         </div>
       {% endfor %}
+    </div>
+    <div class="form-actions">
+      <a class="button-link secondary-button" href="/settings/private-assets">Open secure upload setup</a>
     </div>
   </section>
 {% endblock %}
