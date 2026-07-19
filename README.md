@@ -199,6 +199,10 @@ If `GEMINI_API_KEY` or `AI_API_KEY` is missing, the app will show a clear setup 
 
 Open a candidate and use `Run Research Workflow` to continue from saved candidate/publication metadata to a selected paper. The workflow ranks publications by outreach fit, skips papers without lawful full text, retrieves the selected PDF through the safe fetcher, extracts text, analyzes the full paper through the configured AI provider, generates a local draft, and stops for review.
 
+Fetching publications is separate from running the research workflow. Importing or confirming
+OpenAlex publications should not create a workflow run unless it is resuming an explicit workflow
+that is waiting for author confirmation.
+
 PDF eligibility is determined by one canonical retrieval service and shared by ranking, UI labels,
 automatic selection, and PDF retrieval. The workflow distinguishes direct PDF URLs, arXiv-derived
 PDF URLs, landing-page-only records, DOI-only records, repository records without PDFs, unsafe URLs,

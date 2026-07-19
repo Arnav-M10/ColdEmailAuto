@@ -79,7 +79,14 @@ def publication_selection_url(candidate_id: int) -> str:
     return PUBLICATION_SELECTION_PATH.format(candidate_id=candidate_id)
 
 
-def workflow_or_selection_redirect(db: Session, candidate: Candidate) -> RedirectResponse:
+def workflow_or_selection_redirect(
+    db: Session,
+    candidate: Candidate,
+    *,
+    resume_workflow: bool = False,
+) -> RedirectResponse:
+    if not resume_workflow:
+        return RedirectResponse(publication_selection_url(candidate.id), status_code=303)
     waiting_workflow = waiting_author_workflow(db, candidate.id)
     if not waiting_workflow and not get_settings().auto_select_paper:
         return RedirectResponse(publication_selection_url(candidate.id), status_code=303)
@@ -269,7 +276,7 @@ def candidate_retrieve_live_publications(
                 resume_workflow=False,
                 error_message=str(exc),
             )
-        response = workflow_or_selection_redirect(db, candidate)
+        response = workflow_or_selection_redirect(db, candidate, resume_workflow=False)
         db.commit()
         return response
     if candidate.openalex_author_id and candidate_has_publications_for_openalex_author(
@@ -277,7 +284,7 @@ def candidate_retrieve_live_publications(
         candidate_id=candidate_id,
         openalex_author_id=candidate.openalex_author_id,
     ):
-        response = workflow_or_selection_redirect(db, candidate)
+        response = workflow_or_selection_redirect(db, candidate, resume_workflow=False)
         db.commit()
         return response
     if not candidate.openalex_author_id:
@@ -315,7 +322,7 @@ def candidate_retrieve_live_publications(
             resume_workflow=False,
             error_message=str(exc),
         )
-    response = workflow_or_selection_redirect(db, candidate)
+    response = workflow_or_selection_redirect(db, candidate, resume_workflow=False)
     db.commit()
     return response
 
@@ -353,7 +360,7 @@ def candidate_confirm_openalex_author(
             resume_workflow=resume_workflow,
             error_message=str(exc),
         )
-    response = workflow_or_selection_redirect(db, candidate)
+    response = workflow_or_selection_redirect(db, candidate, resume_workflow=resume_workflow)
     db.commit()
     return response
 

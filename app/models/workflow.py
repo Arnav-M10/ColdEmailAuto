@@ -25,7 +25,7 @@ class ResearchWorkflowRun(Base, TimestampMixin):
         nullable=True,
     )
     draft_id: Mapped[int | None] = mapped_column(ForeignKey("drafts.id"), nullable=True)
-    status: Mapped[str] = mapped_column(String(40), nullable=False, default="RUNNING")
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="NOT_STARTED")
     current_stage: Mapped[str] = mapped_column(
         String(80),
         nullable=False,

@@ -515,6 +515,116 @@ def test_run_research_workflow_redirects_to_selected_paper_detail(
     assert "Attach these two files manually in Outlook." in response.text
 
 
+def test_fetch_publications_does_not_start_research_workflow(tmp_path: Path) -> None:
+    client, session_factory = build_test_context(tmp_path)
+    with session_factory() as session:
+        candidate = create_candidate(
+            session,
+            full_name="Kevin Burdge",
+            title="Assistant Professor",
+            institution="MIT",
+            department="Physics",
+            research_area="compact binaries time-domain astrophysics",
+            official_profile_url="https://physics.mit.edu/faculty/kevin-burdge/",
+            notes=None,
+        )
+        candidate.openalex_author_id = "https://openalex.org/A5083946994"
+        paper = Publication(
+            title="Double White Dwarf Tides with Multi-messenger Measurements",
+            title_fingerprint=title_fingerprint(
+                "Double White Dwarf Tides with Multi-messenger Measurements",
+            ),
+            year=2025,
+            venue="Example Journal",
+            doi="10.1000/burdge-workflow-state",
+            arxiv_id="2501.77777",
+            openalex_id="https://openalex.org/WBURDGE777",
+            source="openalex",
+            open_access_url="https://arxiv.org/abs/2501.77777",
+            pdf_url="https://arxiv.org/pdf/2501.77777",
+            author_count=2,
+            citation_count=12,
+            work_type="article",
+            metadata_json="{}",
+        )
+        session.add(paper)
+        session.flush()
+        session.add(
+            Authorship(
+                candidate_id=candidate.id,
+                publication_id=paper.id,
+                author_position=1,
+                author_count=2,
+                openalex_author_id="https://openalex.org/A5083946994",
+                confirmed_author_present=True,
+                corresponding_author=True,
+                role="corresponding_author",
+                identity_confidence=0.98,
+                match_status="MATCHED",
+                score=93.0,
+                connection_summary="compact binaries and time-domain astrophysics",
+                warnings_json="[]",
+                score_details_json=(
+                    '{"components":{"portfolio_similarity":32.0},'
+                    '"reasons":["Portfolio similarity matched: compact binaries.",'
+                    '"Confirmed author is corresponding author.","Author count: 2.",'
+                    '"Recent publication from 2025."]}'
+                ),
+            ),
+        )
+        session.commit()
+
+    fetched = client.post(
+        "/candidates/1/publications/retrieve-live",
+        data={"csrf": csrf_token()},
+        follow_redirects=True,
+    )
+    detail = client.get("/candidates/1")
+
+    assert fetched.status_code == 200
+    assert str(fetched.url).endswith("/candidates/1/publications/select")
+    assert "Double White Dwarf Tides with Multi-messenger Measurements" in fetched.text
+    assert detail.status_code == 200
+    assert "No workflow run yet" in detail.text
+    assert "Waiting For Manual Paper Selection" not in detail.text
+    with session_factory() as session:
+        assert list(session.scalars(select(ResearchWorkflowRun))) == []
+
+
+def test_legacy_pre_run_manual_workflow_is_displayed_as_not_started(tmp_path: Path) -> None:
+    client, session_factory = build_test_context(tmp_path)
+    with session_factory() as session:
+        candidate = create_candidate(
+            session,
+            full_name="Kevin Burdge",
+            title="Assistant Professor",
+            institution="MIT",
+            department="Physics",
+            research_area="compact binaries time-domain astrophysics",
+            official_profile_url="https://physics.mit.edu/faculty/kevin-burdge/",
+            notes=None,
+        )
+        session.add(
+            ResearchWorkflowRun(
+                candidate_id=candidate.id,
+                status="WAITING_FOR_MANUAL_PAPER_SELECTION",
+                current_stage="Selecting next paper",
+                failure_reason=(
+                    "No publication passed the automatic suitability threshold. "
+                    "Manual paper selection is required before PDF retrieval or analysis."
+                ),
+            ),
+        )
+        session.commit()
+
+    detail = client.get("/candidates/1")
+
+    assert detail.status_code == 200
+    assert "No workflow run yet" in detail.text
+    assert "Waiting For Manual Paper Selection" not in detail.text
+    assert "No publication passed the automatic suitability threshold" not in detail.text
+
+
 def test_research_workflow_waits_for_openalex_confirmation_then_resumes(
     tmp_path: Path,
     monkeypatch: Any,

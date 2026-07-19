@@ -31,6 +31,7 @@ from app.services.papers import store_manual_pdf
 from app.services.research_workflow import (
     latest_workflow_run,
     run_research_workflow,
+    should_display_workflow,
     workflow_review_context,
 )
 
@@ -117,6 +118,8 @@ def candidate_detail(
         ),
     )
     workflow = latest_workflow_run(db, candidate_id)
+    if not should_display_workflow(workflow):
+        workflow = None
     workflow_context = workflow_review_context(db, workflow=workflow)
     selected_publication = (
         db.get(Publication, workflow.selected_publication_id)

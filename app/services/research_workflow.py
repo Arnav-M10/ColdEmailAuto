@@ -105,6 +105,7 @@ def run_research_workflow(
         session.flush()
     else:
         prepare_workflow_for_resume(workflow)
+    workflow.status = "RUNNING"
     try:
         ensure_publications(session, candidate=candidate, workflow=workflow)
         if workflow.status == "WAITING_FOR_AUTHOR_CONFIRMATION":
@@ -131,6 +132,14 @@ def run_research_workflow(
                 "Manual paper selection is required before PDF retrieval or analysis."
             )
             workflow.selected_publication_id = None
+            workflow.retrieval_result_json = json.dumps(
+                {
+                    "status": "ranking_exhausted",
+                    "reviewed_publications": len(rejected),
+                    "attempts": [],
+                    "remaining_alternatives": 0,
+                },
+            )
             if metadata_only is not None:
                 workflow.rejected_alternatives_json = json.dumps(
                     [
@@ -331,6 +340,23 @@ def run_research_workflow(
             f"Unexpected workflow error ({exc.__class__.__name__}): {exc}",
         )
     return workflow
+
+
+def should_display_workflow(workflow: ResearchWorkflowRun | None) -> bool:
+    if workflow is None:
+        return False
+    if workflow.status != "WAITING_FOR_MANUAL_PAPER_SELECTION":
+        return True
+    if (
+        workflow.selected_publication_id
+        or workflow.paper_file_id
+        or workflow.analysis_id
+        or workflow.draft_id
+        or workflow.ai_request_count
+    ):
+        return True
+    retrieval_result = _json_object(workflow.retrieval_result_json)
+    return bool(retrieval_result.get("status"))
 
 
 def ensure_publications(
