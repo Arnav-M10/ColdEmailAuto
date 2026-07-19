@@ -142,6 +142,7 @@ def candidate_detail(
             "approved_draft_count": len(approved_drafts_for_candidate(db, candidate_id)),
             "follow_up_tasks": list_follow_ups_for_candidate(db, candidate_id),
             "publication_reviews": list_candidate_publication_reviews(db, candidate_id),
+            "show_publication_decisions": False,
             "selected_publication": selected_publication,
             "selected_paper_file": selected_paper_file,
             **workflow_context,
@@ -223,7 +224,8 @@ def candidate_resume_research_workflow(
 def workflow_redirect(candidate_id: int, workflow: ResearchWorkflowRun) -> RedirectResponse:
     if workflow.status == "WAITING_FOR_AUTHOR_CONFIRMATION":
         return RedirectResponse(
-            f"/candidates/{candidate_id}/publications/openalex-author/confirm?resume_workflow=1",
+            f"/candidates/{candidate_id}/publications/openalex-author/confirm"
+            f"?resume_workflow=1&workflow_id={workflow.id}",
             status_code=303,
         )
     if workflow.draft_id is not None:

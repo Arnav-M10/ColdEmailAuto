@@ -21,6 +21,9 @@
       <form method="post" action="/candidates/{{ candidate.id }}/publications/openalex-author/confirm">
         <input type="hidden" name="csrf" value="{{ csrf_token }}">
         <input type="hidden" name="resume_workflow" value="{{ 1 if resume_workflow else 0 }}">
+        {% if workflow_id %}
+          <input type="hidden" name="workflow_id" value="{{ workflow_id }}">
+        {% endif %}
         <div class="author-option-list">
           {% for author in author_candidates %}
             <label class="author-option{% if author.openalex_id == preselected_author_id %} selected{% endif %}">

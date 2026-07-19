@@ -1,5 +1,9 @@
-from sqlalchemy import select
+from pathlib import Path
 
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.config import normalize_sqlite_database_url
 from app.db.session import create_engine_for_url, initialize_database
 from app.models.candidate import Candidate, CandidateStatus
 
@@ -28,11 +32,38 @@ def test_database_initializes_foundation_tables() -> None:
     }.issubset(table_names)
 
 
+def test_railway_relative_data_sqlite_url_is_normalized_to_absolute_volume() -> None:
+    normalized = normalize_sqlite_database_url(
+        "sqlite:///data/outreach.db",
+        railway_runtime=True,
+    )
+
+    assert normalized == "sqlite:////data/outreach.db"
+
+
+def test_absolute_sqlite_database_records_persist_after_engine_recreate(tmp_path: Path) -> None:
+    database_path = tmp_path / "data" / "outreach.db"
+    database_url = f"sqlite:///{database_path}"
+    first_engine = create_engine_for_url(database_url)
+    initialize_database(first_engine)
+    with Session(first_engine) as session:
+        session.add(Candidate(full_name="Persistent Candidate", institution="MIT"))
+        session.commit()
+    first_engine.dispose()
+
+    second_engine = create_engine_for_url(database_url)
+    initialize_database(second_engine)
+    with Session(second_engine) as session:
+        stored = session.scalars(select(Candidate)).one()
+    second_engine.dispose()
+
+    assert database_path.exists()
+    assert stored.full_name == "Persistent Candidate"
+
+
 def test_candidate_default_status_is_discovered() -> None:
     engine = create_engine_for_url("sqlite:///:memory:")
     initialize_database(engine)
-
-    from sqlalchemy.orm import Session
 
     with Session(engine) as session:
         candidate = Candidate(full_name="Dr. Ada Lovelace", institution="Example University")

@@ -115,7 +115,7 @@
       {% endif %}
       <div class="split-actions workflow-actions">
         {% if workflow.status == "WAITING_FOR_AUTHOR_CONFIRMATION" %}
-          <a class="button-link secondary-button" href="/candidates/{{ candidate.id }}/publications/openalex-author/confirm?resume_workflow=1">Confirm OpenAlex author</a>
+          <a class="button-link secondary-button" href="/candidates/{{ candidate.id }}/publications/openalex-author/confirm?resume_workflow=1&workflow_id={{ workflow.id }}">Confirm OpenAlex author</a>
         {% elif workflow.status == "WAITING_FOR_PORTFOLIO_INPUT" %}
           <a class="button-link secondary-button" href="/settings/private-assets?candidate_id={{ candidate.id }}">Open secure setup</a>
           <form method="post" action="/candidates/{{ candidate.id }}/research-workflow/resume" class="inline-form">

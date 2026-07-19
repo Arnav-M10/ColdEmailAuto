@@ -77,10 +77,13 @@ def store_manual_pdf(
 ) -> PaperFile:
     settings = get_settings()
     root = project_root or settings.project_root
+    storage_root = (
+        root / "data" if project_root is not None else settings.resolved_runtime_data_dir
+    )
     validate_pdf_bytes(content, settings.max_pdf_size_mb * 1024 * 1024)
 
     candidate_slug = slugify(candidate.full_name)
-    temp_dir = root / "papers" / candidate_slug
+    temp_dir = storage_root / "papers" / candidate_slug
     temp_dir.mkdir(parents=True, exist_ok=True)
     temp_path = temp_dir / "upload.tmp"
     temp_path.write_bytes(content)
@@ -103,7 +106,7 @@ def store_manual_pdf(
         temp_path.unlink(missing_ok=True)
 
     parsed = parse_pdf(stored_path)
-    text_dir = root / "data" / "cache" / "paper_text"
+    text_dir = storage_root / "cache" / "paper_text"
     text_dir.mkdir(parents=True, exist_ok=True)
     text_path = text_dir / f"{sha256}.txt"
     text_path.write_text(parsed.text, encoding="utf-8")
@@ -112,11 +115,11 @@ def store_manual_pdf(
         candidate_id=candidate.id,
         publication_id=publication_id,
         original_filename=Path(original_filename).name,
-        stored_path=str(stored_path.relative_to(root)),
+        stored_path=storage_path_reference(stored_path, root),
         sha256=sha256,
         size_bytes=len(content),
         page_count=parsed.page_count,
-        parsed_text_path=str(text_path.relative_to(root)),
+        parsed_text_path=storage_path_reference(text_path, root),
         source_url=source_url,
         license_note=license_note,
         text_quality_json=json.dumps(
@@ -151,7 +154,19 @@ def read_parsed_text(paper_file: PaperFile) -> str:
     settings = get_settings()
     if paper_file.parsed_text_path is None:
         return ""
-    path = settings.project_root / paper_file.parsed_text_path
+    path = resolve_storage_path(paper_file.parsed_text_path, settings.project_root)
     if not path.exists():
         return ""
     return path.read_text(encoding="utf-8")
+
+
+def storage_path_reference(path: Path, project_root: Path) -> str:
+    try:
+        return str(path.relative_to(project_root))
+    except ValueError:
+        return str(path)
+
+
+def resolve_storage_path(path_value: str, project_root: Path) -> Path:
+    path = Path(path_value)
+    return path if path.is_absolute() else project_root / path

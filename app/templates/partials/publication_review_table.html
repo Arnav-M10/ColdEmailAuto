@@ -1,4 +1,5 @@
 {% if publication_reviews %}
+  {% set can_decide_publications = show_publication_decisions if show_publication_decisions is defined else true %}
   <div class="table-wrap compact">
     <table class="publication-review-table">
       <thead>
@@ -80,7 +81,13 @@
               {% endif %}
             </td>
             <td>
-              {% if review.authorship.selected_for_retrieval %}
+              {% if not can_decide_publications %}
+                {% if review.authorship.selected_for_retrieval %}
+                  <span class="status-chip ok">Selected for retrieval</span>
+                {% else %}
+                  <span class="muted-text">Available for workflow ranking.</span>
+                {% endif %}
+              {% elif review.authorship.selected_for_retrieval %}
                 <span class="status-chip ok">Selected for retrieval</span>
                 {% if review.full_text_available %}
                   <form class="stacked-action" method="post" action="/candidates/{{ candidate.id }}/publications/{{ review.publication.id }}/retrieve">

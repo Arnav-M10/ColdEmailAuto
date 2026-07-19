@@ -497,6 +497,7 @@ def test_run_research_workflow_auto_selects_single_eligible_paper_without_select
         "app.services.research_workflow.required_attachments_ready",
         lambda: True,
     )
+    monkeypatch.setattr("app.services.drafting.required_attachments_ready", lambda _: True)
 
     response = client.post(
         "/candidates/1/research-workflow/run",
@@ -946,6 +947,7 @@ def test_research_workflow_waits_for_openalex_confirmation_then_resumes(
         "app.services.research_workflow.required_attachments_ready",
         lambda: True,
     )
+    monkeypatch.setattr("app.services.drafting.required_attachments_ready", lambda _: True)
 
     confirmation = client.post(
         "/candidates/1/research-workflow/run",
@@ -954,8 +956,8 @@ def test_research_workflow_waits_for_openalex_confirmation_then_resumes(
     )
 
     assert confirmation.status_code == 200
-    assert str(confirmation.url).endswith(
-        "/candidates/1/publications/openalex-author/confirm?resume_workflow=1",
+    assert "/candidates/1/publications/openalex-author/confirm?resume_workflow=1" in str(
+        confirmation.url,
     )
     assert "Confirm OpenAlex Author" in confirmation.text
     assert "Confirm OpenAlex author" in confirmation.text
@@ -971,9 +973,12 @@ def test_research_workflow_waits_for_openalex_confirmation_then_resumes(
 
     with session_factory() as session:
         waiting = session.scalars(select(ResearchWorkflowRun)).one()
+        waiting_workflow_id = waiting.id
         assert waiting.status == "WAITING_FOR_AUTHOR_CONFIRMATION"
         assert waiting.failed_stage is None
         assert waiting.current_stage == "Finding publications"
+    assert f"workflow_id={waiting_workflow_id}" in str(confirmation.url)
+    assert f'name="workflow_id" value="{waiting_workflow_id}"' in confirmation.text
 
     resumed = client.post(
         "/candidates/1/publications/openalex-author/confirm",
@@ -981,6 +986,7 @@ def test_research_workflow_waits_for_openalex_confirmation_then_resumes(
             "csrf": csrf_token(),
             "selected_openalex_author_id": "https://openalex.org/A123456",
             "resume_workflow": "1",
+            "workflow_id": str(waiting_workflow_id),
         },
         follow_redirects=True,
     )
@@ -1002,6 +1008,7 @@ def test_research_workflow_waits_for_openalex_confirmation_then_resumes(
         workflows = list(session.scalars(select(ResearchWorkflowRun)))
         assert len(workflows) == 1
         workflow = workflows[0]
+        assert workflow.id == waiting_workflow_id
         assert workflow.status == "READY_FOR_REVIEW"
         assert workflow.selected_publication_id is not None
         assert workflow.paper_file_id is not None
@@ -1229,6 +1236,7 @@ def test_author_confirmation_waits_for_portfolio_without_manual_selection(
     )
     monkeypatch.setattr("app.services.research_workflow.get_ai_provider", lambda: provider)
     monkeypatch.setattr("app.services.research_workflow.required_attachments_ready", lambda: True)
+    monkeypatch.setattr("app.services.drafting.required_attachments_ready", lambda _: True)
 
     resumed = client.post(
         "/candidates/1/research-workflow/resume",

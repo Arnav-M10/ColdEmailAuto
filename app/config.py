@@ -1,8 +1,32 @@
+import os
 from functools import lru_cache
 from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+RAILWAY_ENV_KEYS = ("RAILWAY_ENVIRONMENT", "RAILWAY_PROJECT_ID", "RAILWAY_SERVICE_ID")
+
+
+def railway_runtime_detected() -> bool:
+    return any(os.getenv(key) for key in RAILWAY_ENV_KEYS)
+
+
+def normalize_sqlite_database_url(
+    database_url: str,
+    *,
+    railway_runtime: bool | None = None,
+) -> str:
+    if database_url.startswith("sqlite:////"):
+        return database_url
+    if not database_url.startswith("sqlite:///data/"):
+        return database_url
+    runtime_is_railway = (
+        railway_runtime if railway_runtime is not None else railway_runtime_detected()
+    )
+    if runtime_is_railway:
+        return f"sqlite:////data/{database_url.removeprefix('sqlite:///data/')}"
+    return database_url
 
 
 class Settings(BaseSettings):
@@ -51,6 +75,7 @@ class Settings(BaseSettings):
     )
     ai_require_free_tier: bool = Field(default=True, validation_alias="AI_REQUIRE_FREE_TIER")
     auto_select_paper: bool = Field(default=True, validation_alias="AUTO_SELECT_PAPER")
+    runtime_data_dir: Path = Field(default=Path("data"), validation_alias="RUNTIME_DATA_DIR")
     private_asset_dir: Path = Field(
         default=Path("/data/private_assets"),
         validation_alias="PRIVATE_ASSET_DIR",
@@ -72,6 +97,14 @@ class Settings(BaseSettings):
     @property
     def resolved_private_asset_dir(self) -> Path:
         return self.resolve_path(self.private_asset_dir)
+
+    @property
+    def effective_database_url(self) -> str:
+        return normalize_sqlite_database_url(self.database_url)
+
+    @property
+    def resolved_runtime_data_dir(self) -> Path:
+        return self.resolve_path(self.runtime_data_dir)
 
     @property
     def resolved_resume_pdf_path(self) -> Path:

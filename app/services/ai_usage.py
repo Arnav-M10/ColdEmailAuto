@@ -6,7 +6,7 @@ from typing import Any
 
 from app.config import get_settings
 
-USAGE_PATH = Path("data/cache/ai_usage.json")
+USAGE_PATH = Path("cache/ai_usage.json")
 
 
 class AIRequestLimitError(ValueError):
@@ -82,7 +82,7 @@ def record_ai_request(
 
 
 def load_usage_state(usage_path: Path | None = None) -> dict[str, Any]:
-    path = usage_path or get_settings().project_root / USAGE_PATH
+    path = usage_path or get_settings().resolved_runtime_data_dir / USAGE_PATH
     if not path.exists():
         return {"day": date.today().isoformat(), "daily_count": 0, "workflows": {}}
     try:
@@ -93,7 +93,7 @@ def load_usage_state(usage_path: Path | None = None) -> dict[str, Any]:
 
 
 def save_usage_state(state: dict[str, Any], usage_path: Path | None = None) -> None:
-    path = usage_path or get_settings().project_root / USAGE_PATH
+    path = usage_path or get_settings().resolved_runtime_data_dir / USAGE_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(state, indent=2), encoding="utf-8")
 

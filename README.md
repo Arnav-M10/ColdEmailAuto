@@ -117,9 +117,9 @@ Logs are structured JSON and are intended for local troubleshooting. Do not past
 
 ## Railway Deployment
 
-Railway deploys this app from `pyproject.toml`. Runtime dependencies live in
-`[project].dependencies`, including `uvicorn[standard]`, so the build must install the package
-itself rather than only development tools.
+Railway installs runtime packages from the root `requirements.txt` in this deployment path.
+Keep it aligned with `[project].dependencies` in `pyproject.toml`, including
+`uvicorn[standard]`, so production starts with the same runtime packages as local development.
 
 The checked-in `railway.json` uses Railpack and starts the app with:
 
@@ -144,11 +144,17 @@ For Railway:
 3. Set these environment variables:
 
 ```bash
+DATABASE_URL=sqlite:////data/outreach.db
+RUNTIME_DATA_DIR=/data
 PRIVATE_ASSET_DIR=/data/private_assets
 RESUME_PDF_PATH=/data/private_assets/arnav_resume.pdf
 RESEARCH_PORTFOLIO_PDF_PATH=/data/private_assets/arnav_research_portfolio.pdf
 ADMIN_SETUP_TOKEN=use-a-long-random-secret
 ```
+
+Use four slashes in `sqlite:////data/outreach.db`. The three-slash form
+`sqlite:///data/outreach.db` is relative and can place the database inside the ephemeral deploy
+filesystem instead of the mounted Railway volume.
 
 4. Deploy the app.
 5. Open Settings, then the private asset setup page with your setup token:

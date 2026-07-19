@@ -138,7 +138,7 @@ class HTTPJSONClient:
         min_delay_seconds: float | None = None,
     ) -> None:
         settings = get_settings()
-        self.cache_dir = cache_dir or settings.project_root / "data" / "cache" / "metadata"
+        self.cache_dir = cache_dir or settings.resolved_runtime_data_dir / "cache" / "metadata"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.min_delay_seconds = (
             min_delay_seconds
@@ -992,7 +992,12 @@ def load_research_portfolio_text_status() -> PortfolioTextStatus:
                 source_path=source_path,
             )
         digest = sha256(path.read_bytes()).hexdigest()
-        return _load_research_portfolio_text_status_cached(str(root), str(path), digest)
+        return _load_research_portfolio_text_status_cached(
+            str(root),
+            str(settings.resolved_runtime_data_dir),
+            str(path),
+            digest,
+        )
     except Exception as exc:
         return PortfolioTextStatus(
             available=False,
@@ -1006,15 +1011,16 @@ def load_research_portfolio_text_status() -> PortfolioTextStatus:
 @lru_cache(maxsize=8)
 def _load_research_portfolio_text_status_cached(
     project_root_value: str,
+    runtime_data_dir_value: str,
     portfolio_path_value: str,
     portfolio_sha256: str,
 ) -> PortfolioTextStatus:
     root = Path(project_root_value)
+    runtime_data_dir = Path(runtime_data_dir_value)
     path = Path(portfolio_path_value)
     source_path = display_portfolio_path(path, root)
     cache_path = (
-        root
-        / "data"
+        runtime_data_dir
         / "cache"
         / "portfolio_text"
         / f"{portfolio_sha256}-{PORTFOLIO_TEXT_EXTRACTION_VERSION}.txt"
@@ -1029,7 +1035,7 @@ def _load_research_portfolio_text_status_cached(
                 reason=None,
                 source_path=source_path,
                 sha256=portfolio_sha256,
-                cache_path=str(cache_path.relative_to(root)),
+                cache_path=storage_path_reference(cache_path, root),
             )
     try:
         reader = PdfReader(path)
@@ -1061,7 +1067,7 @@ def _load_research_portfolio_text_status_cached(
             reason=None,
             source_path=source_path,
             sha256=portfolio_sha256,
-            cache_path=str(cache_path.relative_to(root)),
+            cache_path=storage_path_reference(cache_path, root),
         )
     except Exception as exc:
         return PortfolioTextStatus(
@@ -1079,6 +1085,13 @@ def clear_research_portfolio_text_cache() -> None:
 
 
 def display_portfolio_path(path: Path, project_root: Path) -> str:
+    try:
+        return str(path.relative_to(project_root))
+    except ValueError:
+        return str(path)
+
+
+def storage_path_reference(path: Path, project_root: Path) -> str:
     try:
         return str(path.relative_to(project_root))
     except ValueError:

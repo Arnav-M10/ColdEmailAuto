@@ -47,5 +47,5 @@ def test_manual_pdf_storage_ignores_unsafe_filename(tmp_path: Path) -> None:
         )
 
     assert ".." not in paper.stored_path
-    assert paper.stored_path.startswith("papers/professor-jane-doe/manual_")
+    assert paper.stored_path.startswith("data/papers/professor-jane-doe/manual_")
     assert (tmp_path / paper.stored_path).exists()
