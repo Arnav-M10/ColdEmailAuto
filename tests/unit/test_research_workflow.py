@@ -395,6 +395,45 @@ def test_workflow_falls_back_when_top_pdf_retrieval_fails(
     assert "Second Ranked Working PDF" in result
 
 
+def test_workflow_waits_for_manual_selection_when_top_score_tie(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    make_portfolio_available(monkeypatch)
+    with session_for(tmp_path) as session:
+        candidate_record = candidate(session)
+        candidate_record.openalex_author_id = "https://openalex.org/A1"
+        publication(
+            session,
+            candidate_record,
+            title="Tied Eligible PDF One",
+            score=94.0,
+            arxiv_id="2501.12121",
+        )
+        publication(
+            session,
+            candidate_record,
+            title="Tied Eligible PDF Two",
+            score=94.0,
+            arxiv_id="2501.34343",
+        )
+        fetcher = FakePDFFetcher("tie")
+
+        workflow = run_research_workflow(
+            session,
+            candidate=candidate_record,
+            provider=mock_provider(),
+            pdf_fetcher=fetcher,
+        )
+
+    assert workflow.status == "WAITING_FOR_MANUAL_PAPER_SELECTION"
+    assert workflow.current_stage == "Resolving tied publications"
+    assert workflow.selected_publication_id is None
+    assert "tied for the highest automatic outreach score" in (workflow.failure_reason or "")
+    assert "automatic_selection_tie" in workflow.retrieval_result_json
+    assert fetcher.urls == []
+
+
 def test_workflow_enters_manual_only_after_all_suitable_pdfs_fail(
     tmp_path: Path,
     monkeypatch: Any,

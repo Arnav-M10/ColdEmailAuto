@@ -368,7 +368,7 @@ def test_publication_pdf_retrieval_requires_paper_approval(
     assert called == [1]
 
 
-def test_run_research_workflow_redirects_to_selected_paper_detail(
+def test_run_research_workflow_auto_selects_single_eligible_paper_without_selection_page(
     tmp_path: Path,
     monkeypatch: Any,
 ) -> None:
@@ -406,12 +406,12 @@ def test_run_research_workflow_redirects_to_selected_paper_detail(
             Authorship(
                 candidate_id=candidate.id,
                 publication_id=publication.id,
-                author_position=1,
-                author_count=2,
+                author_position=3,
+                author_count=8,
                 openalex_author_id="https://openalex.org/A1",
                 confirmed_author_present=True,
                 corresponding_author=False,
-                role="first_author",
+                role="middle_author",
                 identity_confidence=0.95,
                 match_status="MATCHED",
                 score=90.0,
@@ -420,7 +420,7 @@ def test_run_research_workflow_redirects_to_selected_paper_detail(
                 score_details_json=(
                     '{"components":{"portfolio_similarity":30.0},'
                     '"reasons":["Portfolio similarity matched: magnetic fields.",'
-                    '"Confirmed author is first author.","Author count: 2.",'
+                    '"Confirmed author appears at position 3.","Author count: 8.",'
                     '"Recent publication from 2025."]}'
                 ),
             ),
@@ -513,6 +513,7 @@ def test_run_research_workflow_redirects_to_selected_paper_detail(
     assert "Copy email body" in response.text
     assert "Copy complete email" in response.text
     assert "Attach these two files manually in Outlook." in response.text
+    assert "Select Publication" not in response.text
 
 
 def test_fetch_publications_does_not_start_research_workflow(tmp_path: Path) -> None:

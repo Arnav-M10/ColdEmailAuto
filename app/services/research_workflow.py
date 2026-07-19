@@ -60,6 +60,7 @@ WORKFLOW_STAGES = [
     "Ready for review",
 ]
 ANALYSIS_PROMPT_VERSION = "paper-analysis-v1"
+AUTOMATIC_SELECTION_TIE_EPSILON = 0.01
 logger = logging.getLogger("professor_outreach.workflow")
 
 
@@ -152,6 +153,33 @@ def run_research_workflow(
                         },
                     ],
                 )
+            return workflow
+        if automatic_selection_tie(ranked_selections):
+            workflow.status = "WAITING_FOR_MANUAL_PAPER_SELECTION"
+            workflow.failed_stage = None
+            workflow.current_stage = "Resolving tied publications"
+            workflow.failure_reason = (
+                "Multiple publications are tied for the highest automatic outreach score. "
+                "Choose a publication before PDF retrieval or analysis."
+            )
+            workflow.selected_publication_id = None
+            workflow.retrieval_result_json = json.dumps(
+                {
+                    "status": "automatic_selection_tie",
+                    "attempts": [],
+                    "tied_publications": [
+                        retrieval_attempt_record(
+                            selection=selection,
+                            attempted=False,
+                            status="tied_before_retrieval",
+                            rejection_reason="Tied highest automatic outreach score.",
+                        )
+                        for selection in ranked_selections
+                        if abs(selection.score - ranked_selections[0].score)
+                        <= AUTOMATIC_SELECTION_TIE_EPSILON
+                    ],
+                },
+            )
             return workflow
 
         paper_file: PaperFile | None = None
@@ -426,6 +454,13 @@ def select_best_publication(session: Session, *, candidate: Candidate) -> Select
     )
 
 
+def automatic_selection_tie(selections: list[RankedPublicationSelection]) -> bool:
+    return (
+        len(selections) > 1
+        and abs(selections[0].score - selections[1].score) <= AUTOMATIC_SELECTION_TIE_EPSILON
+    )
+
+
 def ranked_publication_selections(
     session: Session,
     *,
@@ -514,10 +549,6 @@ def suitability_rejections(
     eligibility = pdf_eligibility or pdf_eligibility_for_publication(publication)
     if not eligibility.eligible:
         reasons.append(eligibility.rejection_reason or "No lawful full text is available.")
-    if authorship.author_count and authorship.author_count > 25:
-        reasons.append("Author list is too large for automatic selection.")
-    if authorship.role not in {"first_author", "last_author", "corresponding_author"}:
-        reasons.append("Candidate is not first, last, or corresponding author.")
     if any("large author list" in str(warning).lower() for warning in warnings):
         reasons.append("Large-authorship warning requires manual review.")
     if disallowed_publication_type(publication):
