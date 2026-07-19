@@ -5,7 +5,6 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session
 
-from app.config import get_settings
 from app.db.session import get_db
 from app.models.candidate import Candidate
 from app.models.publication import Publication
@@ -95,8 +94,8 @@ def workflow_or_selection_redirect(
     if not resume_workflow:
         return RedirectResponse(publication_selection_url(candidate.id), status_code=303)
     waiting_workflow = waiting_author_workflow(db, candidate.id, workflow_id=workflow_id)
-    if not waiting_workflow and not get_settings().auto_select_paper:
-        return RedirectResponse(publication_selection_url(candidate.id), status_code=303)
+    if waiting_workflow is None:
+        return RedirectResponse(f"/candidates/{candidate.id}", status_code=303)
     workflow = run_research_workflow(
         db,
         candidate=candidate,
