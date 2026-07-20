@@ -11,10 +11,15 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.db.session import create_engine_for_url, initialize_database
 from app.models.candidate import Candidate
 from app.models.draft import Draft
-from app.models.paper import EvidenceClassification, EvidenceItem, PaperAnalysis, PaperFile
+from app.models.paper import EvidenceItem, PaperAnalysis, PaperFile
 from app.models.publication import Authorship, Publication
 from app.models.workflow import ResearchWorkflowRun
-from app.services.ai_providers import EvidenceClaim, MockProvider, PaperAnalysisOutput
+from app.services.ai_providers import (
+    EvidenceClaim,
+    EvidenceClassification,
+    MockProvider,
+    PaperAnalysisOutput,
+)
 from app.services.candidates import add_email_address, create_candidate
 from app.services.metadata import title_fingerprint
 from app.services.research_workflow import run_research_workflow, select_best_publication

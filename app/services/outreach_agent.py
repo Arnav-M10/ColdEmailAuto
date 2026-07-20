@@ -10,6 +10,7 @@ from app.models.discovery import DiscoveryCandidate, DiscoveryDecision, Discover
 from app.models.draft import Draft
 from app.models.email_address import EmailAddress
 from app.models.outreach import OutreachEvent, OutreachEventType
+from app.models.workflow import ResearchWorkflowRun
 from app.services.ai_providers import (
     AIProvider,
     AIProviderError,
@@ -46,8 +47,8 @@ CONTACTED_STATUSES = {
     CandidateStatus.FOLLOW_UP_DUE,
     CandidateStatus.CLOSED,
 }
-MIN_AUTO_OPENALEX_CONFIDENCE = 0.86
-MIN_AUTO_OPENALEX_MARGIN = 0.12
+MIN_AUTO_OPENALEX_CONFIDENCE = 0.80
+MIN_AUTO_OPENALEX_MARGIN = 0.05
 MAX_AGENT_CANDIDATES = 8
 
 
@@ -101,11 +102,12 @@ def start_outreach(session: Session, *, provider: AIProvider | None = None) -> O
         try:
             author_resolution = ensure_high_confidence_openalex_author(session, candidate)
             attempt["openalex_author"] = author_resolution
+            existing_workflow = latest_workflow_run(session, candidate.id)
             workflow = run_research_workflow(
                 session,
                 candidate=candidate,
                 provider=selected_provider,
-                workflow=latest_workflow_run(session, candidate.id),
+                workflow=workflow_for_agent_resume(existing_workflow),
             )
             attempt["workflow_id"] = workflow.id
             attempt["workflow_status"] = workflow.status
@@ -164,6 +166,15 @@ def start_outreach(session: Session, *, provider: AIProvider | None = None) -> O
         attempts=attempts,
         message="The agent tried the available candidates but could not finish a safe draft.",
     )
+
+
+def workflow_for_agent_resume(workflow: ResearchWorkflowRun | None) -> ResearchWorkflowRun | None:
+    if workflow is None:
+        return None
+    status = getattr(workflow, "status", None)
+    if status == "FAILED":
+        return None
+    return workflow
 
 
 def outreach_candidate_options(session: Session) -> list[OutreachCandidateOption]:

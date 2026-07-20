@@ -273,21 +273,19 @@ class GeminiProvider:
             "generationConfig": {
                 "temperature": self.config.temperature,
                 "maxOutputTokens": self.config.max_tokens,
-                "responseFormat": {
-                    "text": {
-                        "mimeType": "application/json",
-                        "schema": schema,
-                    },
-                },
+                "responseMimeType": "application/json",
+                "responseSchema": schema,
             },
         }
+        headers = {
+            "Content-Type": "application/json",
+            "x-goog-api-key": self.api_key,
+        }
+        log_gemini_request(url=url, headers=headers, payload=payload)
         try:
             response = self.client.post(
                 url,
-                headers={
-                    "Content-Type": "application/json",
-                    "x-goog-api-key": self.api_key,
-                },
+                headers=headers,
                 json=payload,
                 timeout=self.config.timeout_seconds,
             )
@@ -297,6 +295,11 @@ class GeminiProvider:
             if exc.__class__.__name__.lower().endswith("timeout"):
                 raise AITimeoutError("Gemini request timed out.") from exc
             raise AITransientError(f"Gemini request failed: {exc.__class__.__name__}") from exc
+        response_payload = response_payload_for_log(response)
+        log_gemini_response(
+            status_code=response.status_code,
+            payload=response_payload,
+        )
         if response.status_code in {401, 403}:
             raise AIAuthenticationError("Gemini rejected the API key.")
         if response.status_code == 429 or response.status_code >= 500:
@@ -308,8 +311,11 @@ class GeminiProvider:
                 "Set AI_MODEL to a current Gemini API model such as gemini-3.5-flash."
             )
         if response.status_code >= 400:
-            raise AIProviderError(f"Gemini returned HTTP {response.status_code}.")
-        return extract_gemini_text(response.json())
+            raise AIProviderError(
+                f"Gemini returned HTTP {response.status_code}: "
+                f"{provider_error_detail(response_payload)}"
+            )
+        return extract_gemini_text(response_payload)
 
 
 class OpenAIProvider:
@@ -450,7 +456,7 @@ def current_gemini_model_name(model: str) -> str:
 
 
 def gemini_paper_analysis_schema() -> dict[str, Any]:
-    text_property = {"type": "string"}
+    text_property = {"type": "STRING"}
     properties: dict[str, Any] = {
         "title": text_property,
         "research_question": text_property,
@@ -459,25 +465,25 @@ def gemini_paper_analysis_schema() -> dict[str, Any]:
         "results": text_property,
         "overclaim_risks": text_property,
         "connection_to_arnav": text_property,
-        "confidence": {"type": "number"},
+        "confidence": {"type": "NUMBER"},
         "evidence": {
-            "type": "array",
+            "type": "ARRAY",
             "items": {
-                "type": "object",
+                "type": "OBJECT",
                 "properties": {
                     "claim": text_property,
                     "evidence_text": text_property,
-                    "page_number": {"type": "integer"},
+                    "page_number": {"type": "INTEGER"},
                     "section_name": text_property,
                     "classification": {
-                        "type": "string",
+                        "type": "STRING",
                         "enum": [
                             EvidenceClassification.EXPLICIT.value,
                             EvidenceClassification.STRONG_INFERENCE.value,
                             EvidenceClassification.SPECULATIVE.value,
                         ],
                     },
-                    "confidence": {"type": "number"},
+                    "confidence": {"type": "NUMBER"},
                 },
                 "required": [
                     "claim",
@@ -493,7 +499,7 @@ def gemini_paper_analysis_schema() -> dict[str, Any]:
     for field_name in OPTIONAL_ANALYSIS_FIELDS:
         properties[field_name] = text_property
     return {
-        "type": "object",
+        "type": "OBJECT",
         "properties": properties,
         "required": [
             "title",
@@ -511,17 +517,17 @@ def gemini_paper_analysis_schema() -> dict[str, Any]:
 
 def gemini_draft_review_schema() -> dict[str, Any]:
     return {
-        "type": "object",
+        "type": "OBJECT",
         "properties": {
-            "hallucination_check_passed": {"type": "boolean"},
-            "accuracy_check_passed": {"type": "boolean"},
-            "naturalness_check_passed": {"type": "boolean"},
-            "concise": {"type": "boolean"},
-            "overall_passed": {"type": "boolean"},
-            "summary": {"type": "string"},
-            "concerns": {"type": "array", "items": {"type": "string"}},
-            "suggested_edits": {"type": "array", "items": {"type": "string"}},
-            "confidence": {"type": "number"},
+            "hallucination_check_passed": {"type": "BOOLEAN"},
+            "accuracy_check_passed": {"type": "BOOLEAN"},
+            "naturalness_check_passed": {"type": "BOOLEAN"},
+            "concise": {"type": "BOOLEAN"},
+            "overall_passed": {"type": "BOOLEAN"},
+            "summary": {"type": "STRING"},
+            "concerns": {"type": "ARRAY", "items": {"type": "STRING"}},
+            "suggested_edits": {"type": "ARRAY", "items": {"type": "STRING"}},
+            "confidence": {"type": "NUMBER"},
         },
         "required": [
             "hallucination_check_passed",
@@ -535,6 +541,58 @@ def gemini_draft_review_schema() -> dict[str, Any]:
             "confidence",
         ],
     }
+
+
+def log_gemini_request(
+    *,
+    url: str,
+    headers: dict[str, str],
+    payload: dict[str, Any],
+) -> None:
+    logger.info(
+        "gemini_request",
+        extra={
+            "url": url,
+            "headers": redact_headers(headers),
+            "payload": payload,
+        },
+    )
+
+
+def log_gemini_response(*, status_code: int, payload: dict[str, Any]) -> None:
+    logger.info(
+        "gemini_response",
+        extra={
+            "status_code": status_code,
+            "payload": payload,
+        },
+    )
+
+
+def redact_headers(headers: dict[str, str]) -> dict[str, str]:
+    return {
+        key: "<redacted>" if key.lower() in {"x-goog-api-key", "authorization"} else value
+        for key, value in headers.items()
+    }
+
+
+def response_payload_for_log(response: AIHTTPResponseLike) -> dict[str, Any]:
+    try:
+        return response.json()
+    except Exception:
+        text = getattr(response, "text", None)
+        if isinstance(text, str):
+            return {"unparseable_response_text": text}
+        return {"unparseable_response": response.__class__.__name__}
+
+
+def provider_error_detail(payload: dict[str, Any]) -> str:
+    error = payload.get("error")
+    if isinstance(error, dict):
+        message = error.get("message")
+        if isinstance(message, str) and message:
+            return message
+    return json.dumps(payload, ensure_ascii=True)
 
 
 def extract_gemini_text(payload: dict[str, Any]) -> str:

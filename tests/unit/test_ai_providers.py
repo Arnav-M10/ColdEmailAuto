@@ -1,3 +1,4 @@
+import logging
 from typing import Any
 
 import pytest
@@ -198,11 +199,29 @@ def test_gemini_uses_current_official_rest_request_shape() -> None:
     generation_config = sent["json"]["generationConfig"]
     assert generation_config["temperature"] == 0.1
     assert generation_config["maxOutputTokens"] == 1024
-    assert generation_config["responseFormat"]["text"]["mimeType"] == "application/json"
-    assert generation_config["responseFormat"]["text"]["schema"]["type"] == "object"
+    assert generation_config["responseMimeType"] == "application/json"
+    assert "responseFormat" not in generation_config
+    assert generation_config["responseSchema"]["type"] == "OBJECT"
+    assert generation_config["responseSchema"]["properties"]["evidence"]["type"] == "ARRAY"
     assert "contents" in sent["json"]
     assert "systemInstruction" in sent["json"]
     assert sent["timeout"] == 12.0
+
+
+def test_gemini_logs_request_and_response_without_api_key(caplog: pytest.LogCaptureFixture) -> None:
+    client = FakeAIClient([FakeAIResponse(200, gemini_payload(valid_output_text()))])
+    provider = GeminiProvider(AIProviderConfig.from_settings(provider_config()), client=client)
+
+    with caplog.at_level(logging.INFO, logger="professor_outreach.ai"):
+        provider.analyze_paper(request())
+
+    messages = [record.__dict__ for record in caplog.records]
+    request_record = next(record for record in messages if record["msg"] == "gemini_request")
+    response_record = next(record for record in messages if record["msg"] == "gemini_response")
+    assert request_record["headers"]["x-goog-api-key"] == "<redacted>"
+    assert "test-key" not in str(request_record)
+    assert response_record["status_code"] == 200
+    assert "candidates" in response_record["payload"]
 
 
 def test_gemini_reviews_draft_with_structured_payload() -> None:
@@ -216,9 +235,9 @@ def test_gemini_reviews_draft_with_structured_payload() -> None:
     assert provider.model == "gemini-test"
     assert sent["url"].endswith("/models/gemini-test:generateContent")
     assert "second reviewer" in sent["json"]["systemInstruction"]["parts"][0]["text"]
-    assert sent["json"]["generationConfig"]["responseFormat"]["text"]["schema"]["properties"][
-        "overall_passed"
-    ] == {"type": "boolean"}
+    assert sent["json"]["generationConfig"]["responseSchema"]["properties"]["overall_passed"] == {
+        "type": "BOOLEAN",
+    }
 
 
 def test_gemini_accepts_official_model_resource_names() -> None:

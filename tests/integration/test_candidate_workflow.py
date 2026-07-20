@@ -12,11 +12,16 @@ from app.config import get_settings
 from app.db.session import create_engine_for_url, get_db, initialize_database
 from app.main import create_app
 from app.models.candidate import Candidate
-from app.models.paper import EvidenceClassification, PaperAnalysis, PaperFile
+from app.models.paper import PaperAnalysis, PaperFile
 from app.models.publication import Authorship, Publication
 from app.models.workflow import ResearchWorkflowRun
 from app.security.csrf import csrf_token
-from app.services.ai_providers import EvidenceClaim, MockProvider, PaperAnalysisOutput
+from app.services.ai_providers import (
+    EvidenceClaim,
+    EvidenceClassification,
+    MockProvider,
+    PaperAnalysisOutput,
+)
 from app.services.candidates import add_email_address, create_candidate
 from app.services.metadata import OpenAlexAuthorCandidate, PublicationMetadata, title_fingerprint
 from app.services.web_safety import FetchResult
@@ -213,7 +218,7 @@ def test_analysis_generates_reviewable_draft(tmp_path: Path) -> None:
 
     assert draft_response.status_code == 200
     assert "I enjoyed reading your paper" in draft_response.text
-    assert "Do not send" in draft_response.text
+    assert "No automatic sending. No Mail.Send. No SMTP." in draft_response.text
 
 
 def test_approved_draft_can_be_marked_sent_with_follow_up_suggestion(tmp_path: Path) -> None:
@@ -313,9 +318,9 @@ def test_publication_pdf_retrieval_requires_paper_approval(
         },
     )
 
-    detail = client.get("/candidates/1")
-    assert "Approve paper" in detail.text
-    assert "Retrieve PDF" not in detail.text
+    selection = client.get("/candidates/1/publications/select")
+    assert "Approve paper" in selection.text
+    assert "Retrieve PDF" not in selection.text
 
     blocked = client.post(
         "/candidates/1/publications/1/retrieve",
@@ -384,6 +389,7 @@ def test_run_research_workflow_auto_selects_single_eligible_paper_without_select
             official_profile_url="https://example.edu/jane",
             notes=None,
         )
+        candidate.openalex_author_id = "https://openalex.org/A1"
         publication = Publication(
             title="Magnetic Structures in Time-Domain Surveys",
             title_fingerprint=title_fingerprint("Magnetic Structures in Time-Domain Surveys"),
@@ -493,6 +499,16 @@ def test_run_research_workflow_auto_selects_single_eligible_paper_without_select
         fake_retrieve_publication_pdf,
     )
     monkeypatch.setattr("app.services.research_workflow.get_ai_provider", lambda: provider)
+    monkeypatch.setattr(
+        "app.services.research_workflow.load_research_portfolio_text_status",
+        lambda: SimpleNamespace(
+            available=True,
+            text="magnetic fields computational astrophysics survey analysis",
+            status="AVAILABLE",
+            reason=None,
+            cache_path="data/cache/portfolio_text/test.txt",
+        ),
+    )
     monkeypatch.setattr(
         "app.services.research_workflow.required_attachments_ready",
         lambda: True,
@@ -853,10 +869,6 @@ def test_research_workflow_waits_for_openalex_confirmation_then_resumes(
             return None
 
     settings = get_settings()
-    monkeypatch.setattr(
-        "app.routes.publications.get_settings",
-        lambda: settings.model_copy(update={"auto_select_paper": False}),
-    )
     text_dir = settings.project_root / "data" / "cache" / "paper_text"
     text_dir.mkdir(parents=True, exist_ok=True)
     text_path = text_dir / "workflow-openalex-confirmation.txt"
@@ -1113,10 +1125,6 @@ def test_author_confirmation_waits_for_portfolio_without_manual_selection(
             "/data/private_assets/arnav_research_portfolio.pdf."
         ),
         cache_path=None,
-    )
-    monkeypatch.setattr(
-        "app.routes.publications.get_settings",
-        lambda: settings.model_copy(update={"auto_select_paper": False}),
     )
     monkeypatch.setattr("app.services.metadata.OpenAlexClient", FakeOpenAlexClient)
     monkeypatch.setattr("app.services.metadata.CrossrefClient", FakeCrossrefClient)
@@ -1578,11 +1586,6 @@ def test_mit_discovery_save_then_fetch_publications_for_kevin_burdge(
     monkeypatch.setattr("app.routes.discovery.SafeFetcher", FakeFetcher)
     monkeypatch.setattr("app.services.metadata.OpenAlexClient", FakeOpenAlexClient)
     monkeypatch.setattr("app.services.metadata.CrossrefClient", FakeCrossrefClient)
-    settings = get_settings()
-    monkeypatch.setattr(
-        "app.routes.publications.get_settings",
-        lambda: settings.model_copy(update={"auto_select_paper": False}),
-    )
     client = build_test_client(tmp_path)
 
     resolved = client.post(
@@ -1784,11 +1787,6 @@ def test_mit_kevin_burdge_openalex_author_confirmation_fetches_publications(
             cache_path="data/cache/portfolio_text/test.txt",
         ),
     )
-    settings = get_settings()
-    monkeypatch.setattr(
-        "app.routes.publications.get_settings",
-        lambda: settings.model_copy(update={"auto_select_paper": False}),
-    )
     client, session_factory = build_test_context(tmp_path)
 
     resolved = client.post(
@@ -1975,7 +1973,5 @@ def test_dashboard_uses_real_workflow_counts(tmp_path: Path) -> None:
     response = client.get("/")
 
     assert response.status_code == 200
-    assert "Workflow Dashboard" in response.text
-    assert "Import Department" in response.text
-    assert "Candidates shortlisted" in response.text
-    assert "Missing email" in response.text
+    assert "One draft, end to end" in response.text
+    assert "Start Outreach" in response.text

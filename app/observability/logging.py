@@ -4,19 +4,59 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 
-SECRET_FIELD_MARKERS = ("authorization", "token", "secret", "password", "api_key", "apikey")
+SECRET_FIELD_MARKERS = (
+    "authorization",
+    "secret",
+    "password",
+    "api_key",
+    "api-key",
+    "apikey",
+)
 REDACTED = "[REDACTED]"
+LOG_EXTRA_ATTRIBUTES = (
+    "request_id",
+    "path",
+    "method",
+    "status_code",
+    "duration_ms",
+    "url",
+    "headers",
+    "payload",
+    "candidate_id",
+    "draft_id",
+    "workflow_id",
+    "reason",
+)
 
 
 def redact_mapping(values: Mapping[str, Any]) -> dict[str, Any]:
     redacted: dict[str, Any] = {}
     for key, value in values.items():
-        lowered = key.lower()
-        if any(marker in lowered for marker in SECRET_FIELD_MARKERS):
+        if is_secret_key(key):
             redacted[key] = REDACTED
         else:
-            redacted[key] = value
+            redacted[key] = redact_value(value)
     return redacted
+
+
+def is_secret_key(key: str) -> bool:
+    lowered = key.lower()
+    normalized = lowered.replace("-", "_")
+    return (
+        any(marker in lowered for marker in SECRET_FIELD_MARKERS)
+        or normalized == "token"
+        or normalized.endswith("_token")
+    )
+
+
+def redact_value(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return redact_mapping(value)
+    if isinstance(value, list):
+        return [redact_value(item) for item in value]
+    if isinstance(value, tuple):
+        return [redact_value(item) for item in value]
+    return value
 
 
 class JsonFormatter(logging.Formatter):
@@ -28,7 +68,7 @@ class JsonFormatter(logging.Formatter):
             "event": record.getMessage(),
         }
 
-        for attribute in ("request_id", "path", "method", "status_code", "duration_ms"):
+        for attribute in LOG_EXTRA_ATTRIBUTES:
             if hasattr(record, attribute):
                 payload[attribute] = getattr(record, attribute)
 
