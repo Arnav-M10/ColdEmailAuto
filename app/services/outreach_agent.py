@@ -69,7 +69,12 @@ class OutreachAgentResult:
     message: str
 
 
-def start_outreach(session: Session, *, provider: AIProvider | None = None) -> OutreachAgentResult:
+def start_outreach(
+    session: Session,
+    *,
+    provider: AIProvider | None = None,
+    commit_checkpoints: bool = False,
+) -> OutreachAgentResult:
     attempts: list[dict[str, object]] = []
     options = outreach_candidate_options(session)
     if not options:
@@ -102,12 +107,14 @@ def start_outreach(session: Session, *, provider: AIProvider | None = None) -> O
         try:
             author_resolution = ensure_high_confidence_openalex_author(session, candidate)
             attempt["openalex_author"] = author_resolution
+            commit_outreach_checkpoint(session, enabled=commit_checkpoints)
             existing_workflow = latest_workflow_run(session, candidate.id)
             workflow = run_research_workflow(
                 session,
                 candidate=candidate,
                 provider=selected_provider,
                 workflow=workflow_for_agent_resume(existing_workflow),
+                commit_checkpoints=commit_checkpoints,
             )
             attempt["workflow_id"] = workflow.id
             attempt["workflow_status"] = workflow.status
@@ -127,6 +134,7 @@ def start_outreach(session: Session, *, provider: AIProvider | None = None) -> O
                 draft=draft,
                 provider=selected_provider,
                 workflow_id=workflow.id,
+                commit_checkpoints=commit_checkpoints,
             )
             attempt["ai_review"] = ai_review.model_dump()
             if not ai_review.overall_passed:
@@ -135,6 +143,7 @@ def start_outreach(session: Session, *, provider: AIProvider | None = None) -> O
                 continue
             draft.ai_review_json = ai_review.model_dump_json()
             attempt["status"] = "success"
+            commit_outreach_checkpoint(session, enabled=commit_checkpoints)
             logger.info(
                 "outreach_agent_success",
                 extra={
@@ -175,6 +184,11 @@ def workflow_for_agent_resume(workflow: ResearchWorkflowRun | None) -> ResearchW
     if status == "FAILED":
         return None
     return workflow
+
+
+def commit_outreach_checkpoint(session: Session, *, enabled: bool) -> None:
+    if enabled:
+        session.commit()
 
 
 def outreach_candidate_options(session: Session) -> list[OutreachCandidateOption]:
@@ -342,6 +356,7 @@ def run_second_ai_review(
     draft: Draft,
     provider: AIProvider,
     workflow_id: int,
+    commit_checkpoints: bool = False,
 ) -> DraftReviewOutput:
     if draft.ai_review_json and draft.ai_review_json != "{}":
         return DraftReviewOutput.model_validate(json.loads(draft.ai_review_json))
@@ -351,6 +366,7 @@ def run_second_ai_review(
     context = manual_review_context(session, draft=draft)
     if context.workflow is not None:
         context.workflow.ai_request_count += 1
+    commit_outreach_checkpoint(session, enabled=commit_checkpoints)
     evidence_summary = "\n".join(
         f"- {item.claim} | page {item.page_number} | {item.evidence_text}"
         for item in context.evidence[:8]

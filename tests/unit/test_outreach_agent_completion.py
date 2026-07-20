@@ -2,6 +2,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+from sqlalchemy import Engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import Settings
@@ -26,10 +27,15 @@ from app.services.metadata import title_fingerprint
 from app.services.outreach_agent import start_outreach
 
 
-def session_for(tmp_path: Path) -> Session:
+def session_and_engine_for(tmp_path: Path) -> tuple[Session, Engine]:
     engine = create_engine_for_url(f"sqlite:///{tmp_path / 'outreach.db'}")
     initialize_database(engine)
-    return sessionmaker(bind=engine, autoflush=False, autocommit=False)()
+    return sessionmaker(bind=engine, autoflush=False, autocommit=False)(), engine
+
+
+def session_for(tmp_path: Path) -> Session:
+    session, _engine = session_and_engine_for(tmp_path)
+    return session
 
 
 def candidate_with_publication(session: Session) -> Candidate:
@@ -154,6 +160,25 @@ class SuccessfulBudgetedProvider:
         )
 
 
+class ConcurrentWriteDuringAnalysisProvider(MockProvider):
+    def __init__(self, engine: Engine) -> None:
+        super().__init__(analysis_output())
+        self.engine = engine
+        self.concurrent_write_succeeded = False
+
+    def analyze_paper(self, request: PaperAnalysisRequest) -> PaperAnalysisOutput:
+        with self.engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE candidates "
+                    "SET notes = 'concurrent write during analysis' "
+                    "WHERE full_name = 'Professor Jane Doe'",
+                ),
+            )
+        self.concurrent_write_succeeded = True
+        return super().analyze_paper(request)
+
+
 def test_start_outreach_completes_one_valid_candidate(
     tmp_path: Path,
     monkeypatch: Any,
@@ -180,6 +205,36 @@ def test_start_outreach_completes_one_valid_candidate(
         assert workflow.draft_id == result.draft.id
         assert draft is not None
         assert '"overall_passed":true' in draft.ai_review_json.replace(" ", "")
+
+
+def test_start_outreach_checkpoints_before_ai_to_release_sqlite_writer_lock(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    text_path = create_parsed_paper_text(tmp_path)
+    patch_workflow_dependencies(monkeypatch, tmp_path, text_path)
+
+    session, engine = session_and_engine_for(tmp_path)
+    selected_provider = ConcurrentWriteDuringAnalysisProvider(engine)
+    with session:
+        candidate_with_publication(session)
+        session.commit()
+
+        result = start_outreach(
+            session,
+            provider=selected_provider,
+            commit_checkpoints=True,
+        )
+        session.commit()
+
+        assert result.success is True
+        assert result.draft is not None
+        assert selected_provider.concurrent_write_succeeded is True
+        with engine.connect() as connection:
+            notes = connection.execute(
+                text("SELECT notes FROM candidates WHERE full_name = 'Professor Jane Doe'"),
+            ).scalar_one()
+        assert notes == "concurrent write during analysis"
 
 
 def test_start_outreach_uses_fresh_workflow_after_exhausted_failed_run(

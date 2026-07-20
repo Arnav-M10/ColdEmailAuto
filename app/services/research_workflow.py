@@ -5,8 +5,10 @@ from datetime import UTC, datetime
 from urllib.parse import urlparse
 
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
+from app.db.session import is_sqlite_lock_error
 from app.models.candidate import Candidate, CandidateStatus
 from app.models.draft import Draft
 from app.models.intelligence import ResearcherProfile
@@ -104,6 +106,7 @@ def run_research_workflow(
     provider: AIProvider | None = None,
     pdf_fetcher: PDFFetcherLike | None = None,
     workflow: ResearchWorkflowRun | None = None,
+    commit_checkpoints: bool = False,
 ) -> ResearchWorkflowRun:
     if workflow is None:
         workflow = ResearchWorkflowRun(candidate_id=candidate.id)
@@ -112,17 +115,22 @@ def run_research_workflow(
     else:
         prepare_workflow_for_resume(workflow)
     workflow.status = "RUNNING"
+    commit_workflow_checkpoint(session, enabled=commit_checkpoints)
     try:
         ensure_publications(session, candidate=candidate, workflow=workflow)
         if workflow.status == "WAITING_FOR_AUTHOR_CONFIRMATION":
+            commit_workflow_checkpoint(session, enabled=commit_checkpoints)
             return workflow
+        commit_workflow_checkpoint(session, enabled=commit_checkpoints)
         portfolio_status = load_research_portfolio_text_status()
         if not portfolio_status.available:
             wait_for_portfolio_input(workflow, portfolio_status.reason)
+            commit_workflow_checkpoint(session, enabled=commit_checkpoints)
             return workflow
         set_stage(workflow, "Understanding researcher")
         profile = build_or_reuse_researcher_profile(session, candidate=candidate)
         workflow.researcher_profile_id = profile.id
+        commit_workflow_checkpoint(session, enabled=commit_checkpoints)
 
         set_stage(workflow, "Ranking papers")
         ranked_selections, rejected, metadata_only = ranked_publication_selections(
@@ -159,6 +167,7 @@ def run_research_workflow(
                         },
                     ],
                 )
+            commit_workflow_checkpoint(session, enabled=commit_checkpoints)
             return workflow
         if automatic_selection_tie(ranked_selections):
             workflow.status = "WAITING_FOR_MANUAL_PAPER_SELECTION"
@@ -186,6 +195,7 @@ def run_research_workflow(
                     ],
                 },
             )
+            commit_workflow_checkpoint(session, enabled=commit_checkpoints)
             return workflow
 
         paper_file: PaperFile | None = None
@@ -211,6 +221,7 @@ def run_research_workflow(
                 publication=selection.publication,
                 selection=selection,
             )
+            commit_workflow_checkpoint(session, enabled=commit_checkpoints)
 
             set_stage(workflow, "Retrieving PDF")
             try:
@@ -248,6 +259,7 @@ def run_research_workflow(
                     exception=exc,
                     reason=exc.reason,
                 )
+                commit_workflow_checkpoint(session, enabled=commit_checkpoints)
                 continue
             attempts.append(
                 retrieval_attempt_record(
@@ -277,6 +289,7 @@ def run_research_workflow(
                     "remaining_alternatives": 0,
                 },
             )
+            commit_workflow_checkpoint(session, enabled=commit_checkpoints)
             return workflow
 
         workflow.retrieval_result_json = json.dumps(
@@ -294,6 +307,7 @@ def run_research_workflow(
         workflow.selected_publication_id = selected_publication.id
         workflow.selection_score = selected_selection.score
         workflow.paper_file_id = paper_file.id
+        commit_workflow_checkpoint(session, enabled=commit_checkpoints)
 
         set_stage(workflow, "Extracting text")
         if not paper_file.parsed_text_path:
@@ -307,9 +321,11 @@ def run_research_workflow(
             publication=selected_publication,
             provider=provider,
             workflow=workflow,
+            commit_checkpoints=commit_checkpoints,
         )
         workflow.analysis_id = analysis.id
         session.flush()
+        commit_workflow_checkpoint(session, enabled=commit_checkpoints)
 
         set_stage(workflow, "Generating summary")
         evidence = explicit_evidence_for_analysis(session, analysis.id)
@@ -363,9 +379,14 @@ def run_research_workflow(
         workflow.current_stage = "Ready for review"
         workflow.status = "READY_FOR_REVIEW"
         candidate.status = CandidateStatus.DRAFT_READY
+        commit_workflow_checkpoint(session, enabled=commit_checkpoints)
     except WorkflowStageError as exc:
         fail_workflow(workflow, exc.stage, exc.reason)
     except (AIProviderError, AIRequestLimitError, ValueError) as exc:
+        fail_workflow(workflow, workflow.current_stage, str(exc))
+    except OperationalError as exc:
+        if is_sqlite_lock_error(exc):
+            raise
         fail_workflow(workflow, workflow.current_stage, str(exc))
     except Exception as exc:
         fail_workflow(
@@ -373,6 +394,7 @@ def run_research_workflow(
             workflow.current_stage,
             f"Unexpected workflow error ({exc.__class__.__name__}): {exc}",
         )
+    commit_workflow_checkpoint(session, enabled=commit_checkpoints)
     return workflow
 
 
@@ -739,6 +761,7 @@ def get_or_create_analysis(
     publication: Publication,
     provider: AIProvider | None,
     workflow: ResearchWorkflowRun,
+    commit_checkpoints: bool = False,
 ) -> PaperAnalysis:
     selected_provider = provider or get_ai_provider()
     provider_key = f"{selected_provider.name}:{selected_provider.model}:{ANALYSIS_PROMPT_VERSION}"
@@ -754,6 +777,7 @@ def get_or_create_analysis(
         assert_ai_request_allowed(workflow_id=workflow.id)
         record_ai_request(workflow_id=workflow.id)
         workflow.ai_request_count += 1
+    commit_workflow_checkpoint(session, enabled=commit_checkpoints)
     analysis = create_ai_analysis_from_text(
         session,
         candidate=candidate,
@@ -838,6 +862,11 @@ def workflow_review_context(
 
 def set_stage(workflow: ResearchWorkflowRun, stage: str) -> None:
     workflow.current_stage = stage
+
+
+def commit_workflow_checkpoint(session: Session, *, enabled: bool) -> None:
+    if enabled:
+        session.commit()
 
 
 def fail_workflow(workflow: ResearchWorkflowRun, stage: str, reason: str) -> None:

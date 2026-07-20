@@ -1,7 +1,9 @@
 from collections.abc import Generator
 from pathlib import Path
+from typing import Any
 
-from sqlalchemy import Engine, create_engine, text
+from sqlalchemy import Engine, create_engine, event, text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import get_settings, normalize_sqlite_database_url
@@ -20,6 +22,13 @@ from app.models import (  # noqa: F401
     workflow,
 )
 
+SQLITE_BUSY_TIMEOUT_MS = 30_000
+SQLITE_LOCK_MESSAGES = (
+    "database is locked",
+    "database table is locked",
+    "database schema is locked",
+)
+
 
 def ensure_sqlite_parent_directory(database_url: str) -> None:
     database_url = normalize_sqlite_database_url(database_url)
@@ -34,8 +43,45 @@ def ensure_sqlite_parent_directory(database_url: str) -> None:
 def create_engine_for_url(database_url: str) -> Engine:
     database_url = normalize_sqlite_database_url(database_url)
     ensure_sqlite_parent_directory(database_url)
-    connect_args = {"check_same_thread": False} if database_url.startswith("sqlite") else {}
-    return create_engine(database_url, connect_args=connect_args)
+    sqlite = database_url.startswith("sqlite")
+    connect_args: dict[str, Any] = {}
+    if sqlite:
+        connect_args = {
+            "check_same_thread": False,
+            "timeout": SQLITE_BUSY_TIMEOUT_MS / 1000,
+        }
+    created_engine = create_engine(database_url, connect_args=connect_args, pool_pre_ping=True)
+    if sqlite:
+        configure_sqlite_pragmas(created_engine, enable_wal=is_sqlite_file_database(database_url))
+    return created_engine
+
+
+def is_sqlite_file_database(database_url: str) -> bool:
+    if not database_url.startswith("sqlite:///"):
+        return False
+    database_path = database_url.removeprefix("sqlite:///")
+    return database_path not in {":memory:", ""}
+
+
+def configure_sqlite_pragmas(target_engine: Engine, *, enable_wal: bool) -> None:
+    @event.listens_for(target_engine, "connect")
+    def set_sqlite_pragmas(dbapi_connection: Any, _connection_record: Any) -> None:
+        cursor = dbapi_connection.cursor()
+        try:
+            cursor.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
+            cursor.execute("PRAGMA foreign_keys=ON")
+            if enable_wal:
+                cursor.execute("PRAGMA journal_mode=WAL")
+                cursor.execute("PRAGMA synchronous=NORMAL")
+        finally:
+            cursor.close()
+
+
+def is_sqlite_lock_error(exc: BaseException) -> bool:
+    if not isinstance(exc, OperationalError):
+        return False
+    message = str(exc.orig).lower() if getattr(exc, "orig", None) else str(exc).lower()
+    return any(lock_message in message for lock_message in SQLITE_LOCK_MESSAGES)
 
 
 settings = get_settings()
@@ -171,5 +217,11 @@ def check_database(target_engine: Engine = engine) -> bool:
 
 
 def get_db() -> Generator[Session, None, None]:
-    with SessionLocal() as session:
+    session = SessionLocal()
+    try:
         yield session
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()

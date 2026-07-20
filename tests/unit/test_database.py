@@ -61,6 +61,23 @@ def test_absolute_sqlite_database_records_persist_after_engine_recreate(tmp_path
     assert stored.full_name == "Persistent Candidate"
 
 
+def test_file_sqlite_uses_busy_timeout_and_wal(tmp_path: Path) -> None:
+    database_path = tmp_path / "data" / "outreach.db"
+    engine = create_engine_for_url(f"sqlite:///{database_path}")
+    initialize_database(engine)
+
+    with engine.connect() as connection:
+        busy_timeout = connection.exec_driver_sql("PRAGMA busy_timeout").scalar_one()
+        journal_mode = connection.exec_driver_sql("PRAGMA journal_mode").scalar_one()
+        synchronous = connection.exec_driver_sql("PRAGMA synchronous").scalar_one()
+
+    engine.dispose()
+
+    assert busy_timeout == 30_000
+    assert journal_mode == "wal"
+    assert synchronous == 1
+
+
 def test_candidate_default_status_is_discovered() -> None:
     engine = create_engine_for_url("sqlite:///:memory:")
     initialize_database(engine)
