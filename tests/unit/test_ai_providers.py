@@ -3,7 +3,6 @@ from typing import Any
 import pytest
 
 from app.config import Settings
-from app.models.paper import EvidenceClassification
 from app.services.ai_providers import (
     AIAuthenticationError,
     AIConfigurationError,
@@ -12,10 +11,13 @@ from app.services.ai_providers import (
     AIResponseError,
     AITimeoutError,
     EvidenceClaim,
+    EvidenceClassification,
     GeminiProvider,
     MockProvider,
     PaperAnalysisOutput,
     PaperAnalysisRequest,
+    current_gemini_model_name,
+    gemini_model_resource_name,
     get_ai_provider,
 )
 
@@ -39,6 +41,7 @@ class FakeAIClient:
         self.responses = responses or []
         self.error = error
         self.calls = 0
+        self.requests: list[dict[str, Any]] = []
 
     def post(
         self,
@@ -48,8 +51,14 @@ class FakeAIClient:
         json: dict[str, Any],
         timeout: float,
     ) -> FakeAIResponse:
-        del headers, json, timeout
-        assert "key=test-key" in url
+        self.requests.append(
+            {
+                "url": url,
+                "headers": headers,
+                "json": json,
+                "timeout": timeout,
+            },
+        )
         self.calls += 1
         if self.error is not None:
             raise self.error
@@ -122,6 +131,66 @@ def gemini_payload(text: str) -> dict[str, Any]:
 def test_missing_gemini_api_key_is_configuration_error() -> None:
     with pytest.raises(AIConfigurationError, match="Gemini API key is missing"):
         get_ai_provider(provider_config(api_key=None))
+
+
+def test_gemini_uses_current_official_rest_request_shape() -> None:
+    client = FakeAIClient([FakeAIResponse(200, gemini_payload(valid_output_text()))])
+    provider = GeminiProvider(
+        AIProviderConfig.from_settings(
+            Settings(
+                ai_provider="gemini",
+                ai_model="gemini-3.5-flash",
+                ai_api_key="test-key",
+                ai_timeout_seconds=12.0,
+                ai_temperature=0.1,
+                ai_max_tokens=1024,
+            ),
+        ),
+        client=client,
+    )
+
+    provider.analyze_paper(request())
+
+    sent = client.requests[0]
+    assert (
+        sent["url"]
+        == "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent"
+    )
+    assert sent["headers"] == {
+        "Content-Type": "application/json",
+        "x-goog-api-key": "test-key",
+    }
+    assert "key=test-key" not in sent["url"]
+    generation_config = sent["json"]["generationConfig"]
+    assert generation_config["temperature"] == 0.1
+    assert generation_config["maxOutputTokens"] == 1024
+    assert generation_config["responseFormat"]["text"]["mimeType"] == "application/json"
+    assert generation_config["responseFormat"]["text"]["schema"]["type"] == "object"
+    assert "contents" in sent["json"]
+    assert "systemInstruction" in sent["json"]
+    assert sent["timeout"] == 12.0
+
+
+def test_gemini_accepts_official_model_resource_names() -> None:
+    assert gemini_model_resource_name("gemini-3.5-flash") == "models/gemini-3.5-flash"
+    assert gemini_model_resource_name("models/gemini-3.5-flash") == "models/gemini-3.5-flash"
+
+
+def test_legacy_configured_gemini_model_uses_current_model() -> None:
+    assert current_gemini_model_name("gemini-2.5-flash") == "gemini-3.5-flash"
+    assert current_gemini_model_name("models/gemini-2.5-flash") == "models/gemini-3.5-flash"
+
+
+def test_default_gemini_model_matches_current_docs() -> None:
+    assert Settings.model_fields["ai_model"].default == "gemini-3.5-flash"
+
+
+def test_gemini_404_names_the_configured_model() -> None:
+    client = FakeAIClient([FakeAIResponse(404, {})])
+    provider = GeminiProvider(AIProviderConfig.from_settings(provider_config()), client=client)
+
+    with pytest.raises(AIProviderError, match="gemini-test"):
+        provider.analyze_paper(request())
 
 
 def test_invalid_gemini_api_key_is_reported() -> None:

@@ -61,7 +61,7 @@ class Settings(BaseSettings):
         validation_alias="HTTP_USER_AGENT",
     )
     ai_provider: str = Field(default="gemini", validation_alias="AI_PROVIDER")
-    ai_model: str = Field(default="gemini-2.5-flash", validation_alias="AI_MODEL")
+    ai_model: str = Field(default="gemini-3.5-flash", validation_alias="AI_MODEL")
     ai_api_key: str | None = Field(default=None, validation_alias="AI_API_KEY")
     gemini_api_key: str | None = Field(default=None, validation_alias="GEMINI_API_KEY")
     ai_timeout_seconds: float = Field(default=30.0, validation_alias="AI_TIMEOUT_SECONDS")

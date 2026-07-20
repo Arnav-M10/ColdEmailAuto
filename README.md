@@ -185,7 +185,7 @@ To configure Gemini:
 
 ```bash
 AI_PROVIDER=gemini
-AI_MODEL=gemini-2.5-flash
+AI_MODEL=gemini-3.5-flash
 GEMINI_API_KEY=your_key_here
 AI_TIMEOUT_SECONDS=30
 AI_RETRIES=2
@@ -198,6 +198,13 @@ AUTO_SELECT_PAPER=true
 ```
 
 `.env` is ignored by Git. Do not commit API keys, logs containing keys, or copied provider responses with private paper text.
+
+If you previously configured `AI_MODEL=gemini-2.5-flash`, update it to `gemini-3.5-flash`.
+The provider maps that old app default to the current model for compatibility, but keeping the
+environment variable current avoids confusion in logs. The Gemini provider uses the current
+`v1beta` `generateContent` REST endpoint and sends the API key in the `x-goog-api-key` header.
+An unavailable or misspelled model will produce a clear model-not-found error instead of a
+generic HTTP 404.
 
 If `GEMINI_API_KEY` or `AI_API_KEY` is missing, the app will show a clear setup error and will not create an analysis. It never silently falls back to a mock provider.
 

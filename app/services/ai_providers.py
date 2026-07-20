@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 from dataclasses import dataclass
 from enum import StrEnum
@@ -7,15 +8,38 @@ from typing import Any, Protocol
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from app.config import Settings, get_settings
-from app.models.paper import EvidenceClassification
 
 PAGE_MARKER_RE = re.compile(r"--- Page ([0-9]+) ---")
 NUMBER_RE = re.compile(r"\b\d+(?:\.\d+)?\b")
+logger = logging.getLogger("professor_outreach.ai")
+CURRENT_GEMINI_MODEL = "gemini-3.5-flash"
+GEMINI_MODEL_ALIASES = {
+    "gemini-2.5-flash": CURRENT_GEMINI_MODEL,
+    "models/gemini-2.5-flash": f"models/{CURRENT_GEMINI_MODEL}",
+}
+OPTIONAL_ANALYSIS_FIELDS = (
+    "equations",
+    "computational_methods",
+    "datasets",
+    "software",
+    "numerical_methods",
+    "assumptions",
+    "limitations",
+    "future_work",
+    "contribution_areas",
+    "candidate_role_notes",
+)
 
 
 class AIProviderName(StrEnum):
     GEMINI = "gemini"
     OPENAI = "openai"
+
+
+class EvidenceClassification(StrEnum):
+    EXPLICIT = "EXPLICIT"
+    STRONG_INFERENCE = "STRONG_INFERENCE"
+    SPECULATIVE = "SPECULATIVE"
 
 
 class AIProviderError(ValueError):
@@ -137,7 +161,7 @@ class AIProviderConfig:
 
 class GeminiProvider:
     name = AIProviderName.GEMINI.value
-    endpoint = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    endpoint = "https://generativelanguage.googleapis.com/v1beta/{model}:generateContent"
 
     def __init__(
         self,
@@ -151,7 +175,8 @@ class GeminiProvider:
                 "GEMINI_API_KEY in your local .env file."
             )
         self.config = config
-        self.model = config.model
+        self.api_key = config.api_key
+        self.model = current_gemini_model_name(config.model)
         if client is None:
             import httpx
 
@@ -172,7 +197,8 @@ class GeminiProvider:
         raise AIResponseError("Gemini did not return an analysis.")
 
     def _generate_text(self, request: PaperAnalysisRequest) -> str:
-        url = self.endpoint.format(model=self.model)
+        model_resource = gemini_model_resource_name(self.model)
+        url = self.endpoint.format(model=model_resource)
         payload = {
             "systemInstruction": {
                 "parts": [
@@ -194,13 +220,21 @@ class GeminiProvider:
             "generationConfig": {
                 "temperature": self.config.temperature,
                 "maxOutputTokens": self.config.max_tokens,
-                "responseMimeType": "application/json",
+                "responseFormat": {
+                    "text": {
+                        "mimeType": "application/json",
+                        "schema": gemini_paper_analysis_schema(),
+                    },
+                },
             },
         }
         try:
             response = self.client.post(
-                f"{url}?key={self.config.api_key}",
-                headers={"Content-Type": "application/json"},
+                url,
+                headers={
+                    "Content-Type": "application/json",
+                    "x-goog-api-key": self.api_key,
+                },
                 json=payload,
                 timeout=self.config.timeout_seconds,
             )
@@ -214,6 +248,12 @@ class GeminiProvider:
             raise AIAuthenticationError("Gemini rejected the API key.")
         if response.status_code == 429 or response.status_code >= 500:
             raise AITransientError(f"Gemini returned HTTP {response.status_code}.")
+        if response.status_code == 404:
+            raise AIProviderError(
+                "Gemini returned HTTP 404. "
+                f"Model {self.model!r} was not found for the v1beta generateContent API. "
+                "Set AI_MODEL to a current Gemini API model such as gemini-3.5-flash."
+            )
         if response.status_code >= 400:
             raise AIProviderError(f"Gemini returned HTTP {response.status_code}.")
         return extract_gemini_text(response.json())
@@ -286,6 +326,86 @@ def build_analysis_prompt(request: PaperAnalysisRequest) -> str:
         f"{request.paper_text[:60000]}\n"
         "</UNTRUSTED_PAPER_TEXT>"
     )
+
+
+def gemini_model_resource_name(model: str) -> str:
+    normalized = model.strip().removeprefix("/")
+    if normalized.startswith("models/"):
+        return normalized
+    return f"models/{normalized}"
+
+
+def current_gemini_model_name(model: str) -> str:
+    normalized = model.strip().removeprefix("/")
+    replacement = GEMINI_MODEL_ALIASES.get(normalized)
+    if replacement is None:
+        return normalized
+    logger.warning(
+        "Configured Gemini model %s is no longer the app default; using %s.",
+        normalized,
+        replacement,
+    )
+    return replacement
+
+
+def gemini_paper_analysis_schema() -> dict[str, Any]:
+    text_property = {"type": "string"}
+    properties: dict[str, Any] = {
+        "title": text_property,
+        "research_question": text_property,
+        "motivation": text_property,
+        "methods": text_property,
+        "results": text_property,
+        "overclaim_risks": text_property,
+        "connection_to_arnav": text_property,
+        "confidence": {"type": "number"},
+        "evidence": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "claim": text_property,
+                    "evidence_text": text_property,
+                    "page_number": {"type": "integer"},
+                    "section_name": text_property,
+                    "classification": {
+                        "type": "string",
+                        "enum": [
+                            EvidenceClassification.EXPLICIT.value,
+                            EvidenceClassification.STRONG_INFERENCE.value,
+                            EvidenceClassification.SPECULATIVE.value,
+                        ],
+                    },
+                    "confidence": {"type": "number"},
+                },
+                "required": [
+                    "claim",
+                    "evidence_text",
+                    "page_number",
+                    "section_name",
+                    "classification",
+                    "confidence",
+                ],
+            },
+        },
+    }
+    for field_name in OPTIONAL_ANALYSIS_FIELDS:
+        properties[field_name] = text_property
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": [
+            "title",
+            "research_question",
+            "motivation",
+            "methods",
+            "results",
+            "overclaim_risks",
+            "connection_to_arnav",
+            "confidence",
+            "evidence",
+        ],
+    }
 
 
 def extract_gemini_text(payload: dict[str, Any]) -> str:
