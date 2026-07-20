@@ -16,6 +16,8 @@ from app.services.ai_providers import (
     AIProviderError,
     DraftReviewOutput,
     DraftReviewRequest,
+    DraftRevisionOutput,
+    DraftRevisionRequest,
     get_ai_provider,
 )
 from app.services.ai_usage import (
@@ -25,7 +27,7 @@ from app.services.ai_usage import (
 )
 from app.services.candidates import detect_duplicate_warnings
 from app.services.discovery import save_discovery_candidate
-from app.services.drafting import contains_forbidden_phrase, primary_verified_email
+from app.services.drafting import contains_forbidden_phrase, primary_verified_email, word_count
 from app.services.metadata import (
     candidate_has_publications_for_openalex_author,
     list_candidate_publication_reviews,
@@ -36,7 +38,7 @@ from app.services.research_workflow import (
     latest_workflow_run,
     run_research_workflow,
 )
-from app.services.review import manual_review_context
+from app.services.review import ManualReviewContext, manual_review_context
 
 logger = logging.getLogger("professor_outreach.outreach_agent")
 CONTACTED_STATUSES = {
@@ -50,6 +52,7 @@ CONTACTED_STATUSES = {
 MIN_AUTO_OPENALEX_CONFIDENCE = 0.80
 MIN_AUTO_OPENALEX_MARGIN = 0.05
 MAX_AGENT_CANDIDATES = 8
+MAX_DRAFT_REVISION_ATTEMPTS = 3
 
 
 @dataclass(frozen=True)
@@ -128,7 +131,7 @@ def start_outreach(
                 attempt["status"] = "skipped"
                 attempt["reason"] = "Workflow did not save a draft."
                 continue
-            ai_review = run_second_ai_review(
+            ai_review, revision_count = review_and_revise_draft(
                 session,
                 candidate=candidate,
                 draft=draft,
@@ -137,11 +140,14 @@ def start_outreach(
                 commit_checkpoints=commit_checkpoints,
             )
             attempt["ai_review"] = ai_review.model_dump()
+            attempt["draft_revision_count"] = revision_count
             if not ai_review.overall_passed:
                 attempt["status"] = "skipped"
-                attempt["reason"] = "Second AI review did not pass the draft."
+                attempt["reason"] = (
+                    "Second AI review still did not pass the draft after "
+                    f"{MAX_DRAFT_REVISION_ATTEMPTS} revision attempt(s)."
+                )
                 continue
-            draft.ai_review_json = ai_review.model_dump_json()
             attempt["status"] = "success"
             commit_outreach_checkpoint(session, enabled=commit_checkpoints)
             logger.info(
@@ -359,7 +365,10 @@ def run_second_ai_review(
     commit_checkpoints: bool = False,
 ) -> DraftReviewOutput:
     if draft.ai_review_json and draft.ai_review_json != "{}":
-        return DraftReviewOutput.model_validate(json.loads(draft.ai_review_json))
+        cached = DraftReviewOutput.model_validate(json.loads(draft.ai_review_json))
+        if cached.overall_passed:
+            return cached
+        draft.ai_review_json = "{}"
     if provider.name != "mock":
         assert_ai_request_allowed(workflow_id=workflow_id)
         record_ai_request(workflow_id=workflow_id)
@@ -367,10 +376,7 @@ def run_second_ai_review(
     if context.workflow is not None:
         context.workflow.ai_request_count += 1
     commit_outreach_checkpoint(session, enabled=commit_checkpoints)
-    evidence_summary = "\n".join(
-        f"- {item.claim} | page {item.page_number} | {item.evidence_text}"
-        for item in context.evidence[:8]
-    )
+    evidence_summary = evidence_summary_for_review(context)
     publication_title = context.publication.title if context.publication else "Unknown paper"
     review = provider.review_draft(
         DraftReviewRequest(
@@ -393,7 +399,130 @@ def run_second_ai_review(
                 ],
             },
         )
+    if context.approval_errors:
+        review = review.model_copy(
+            update={
+                "accuracy_check_passed": False,
+                "naturalness_check_passed": False,
+                "concise": False,
+                "overall_passed": False,
+                "concerns": [
+                    *review.concerns,
+                    *[f"Deterministic check failed: {error}" for error in context.approval_errors],
+                ],
+            },
+        )
     return review
+
+
+def review_and_revise_draft(
+    session: Session,
+    *,
+    candidate: Candidate,
+    draft: Draft,
+    provider: AIProvider,
+    workflow_id: int,
+    commit_checkpoints: bool = False,
+) -> tuple[DraftReviewOutput, int]:
+    review = run_second_ai_review(
+        session,
+        candidate=candidate,
+        draft=draft,
+        provider=provider,
+        workflow_id=workflow_id,
+        commit_checkpoints=commit_checkpoints,
+    )
+    if review.overall_passed:
+        draft.ai_review_json = review.model_dump_json()
+        return review, 0
+
+    revision_count = 0
+    for attempt_number in range(1, MAX_DRAFT_REVISION_ATTEMPTS + 1):
+        revision_count = attempt_number
+        revision = revise_draft_from_review(
+            session,
+            candidate=candidate,
+            draft=draft,
+            provider=provider,
+            workflow_id=workflow_id,
+            review=review,
+            attempt_number=attempt_number,
+            commit_checkpoints=commit_checkpoints,
+        )
+        apply_draft_revision(draft, revision=revision)
+        review = run_second_ai_review(
+            session,
+            candidate=candidate,
+            draft=draft,
+            provider=provider,
+            workflow_id=workflow_id,
+            commit_checkpoints=commit_checkpoints,
+        )
+        if review.overall_passed:
+            draft.ai_review_json = review.model_dump_json()
+            return review, revision_count
+    draft.ai_review_json = review.model_dump_json()
+    return review, revision_count
+
+
+def revise_draft_from_review(
+    session: Session,
+    *,
+    candidate: Candidate,
+    draft: Draft,
+    provider: AIProvider,
+    workflow_id: int,
+    review: DraftReviewOutput,
+    attempt_number: int,
+    commit_checkpoints: bool = False,
+) -> DraftRevisionOutput:
+    if provider.name != "mock":
+        assert_ai_request_allowed(workflow_id=workflow_id)
+        record_ai_request(workflow_id=workflow_id)
+    context = manual_review_context(session, draft=draft)
+    if context.workflow is not None:
+        context.workflow.ai_request_count += 1
+    commit_outreach_checkpoint(session, enabled=commit_checkpoints)
+    evidence_summary = evidence_summary_for_review(context)
+    publication_title = context.publication.title if context.publication else "Unknown paper"
+    return provider.revise_draft(
+        DraftRevisionRequest(
+            recipient_name=candidate.full_name,
+            paper_title=publication_title,
+            draft_subject=draft.subject,
+            draft_body=draft.body_text,
+            evidence_summary=evidence_summary,
+            deterministic_checks=context.sentence_checks,
+            reviewer_feedback=review_feedback_text(review, context.approval_errors),
+            attempt_number=attempt_number,
+        ),
+    )
+
+
+def apply_draft_revision(draft: Draft, *, revision: DraftRevisionOutput) -> None:
+    draft.subject = revision.subject.strip()
+    draft.body_text = revision.body_text.strip()
+    draft.word_count = word_count(draft.body_text)
+    draft.ai_review_json = "{}"
+    draft.generation_version = f"{draft.generation_version}:revision"
+
+
+def evidence_summary_for_review(context: ManualReviewContext) -> str:
+    evidence = context.evidence
+    return "\n".join(
+        f"- {item.claim} | page {item.page_number} | {item.evidence_text}"
+        for item in evidence[:8]
+    )
+
+
+def review_feedback_text(review: DraftReviewOutput, approval_errors: list[str]) -> str:
+    parts = [
+        f"Review summary: {review.summary}",
+        *[f"Concern: {concern}" for concern in review.concerns],
+        *[f"Suggested edit: {edit}" for edit in review.suggested_edits],
+        *[f"Deterministic issue: {error}" for error in approval_errors],
+    ]
+    return "\n".join(parts)
 
 
 def load_draft_ai_review(draft: Draft) -> DraftReviewOutput | None:

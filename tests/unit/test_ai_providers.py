@@ -13,6 +13,7 @@ from app.services.ai_providers import (
     AIResponseError,
     AITimeoutError,
     DraftReviewRequest,
+    DraftRevisionRequest,
     EvidenceClaim,
     EvidenceClassification,
     GeminiProvider,
@@ -147,6 +148,23 @@ def valid_review_text() -> str:
     """
 
 
+def valid_revision_text() -> str:
+    body_text = (
+        "Dear Professor Doe,\\n\\n"
+        "I was mainly intrigued by the numerical checks.\\n\\n"
+        "Sincerely,\\n"
+        "Arnav Mittal"
+    )
+    return f"""
+    {{
+      "subject": "Research inquiry - Magnetic structures",
+      "body_text": "{body_text}",
+      "revision_notes": "Removed unsupported wording and kept the note concise.",
+      "confidence": 0.88
+    }}
+    """
+
+
 def draft_review_request() -> DraftReviewRequest:
     return DraftReviewRequest(
         recipient_name="Professor Jane Doe",
@@ -161,6 +179,25 @@ def draft_review_request() -> DraftReviewRequest:
                 "reason": "Grounded in evidence.",
             },
         ],
+    )
+
+
+def draft_revision_request() -> DraftRevisionRequest:
+    return DraftRevisionRequest(
+        recipient_name="Professor Jane Doe",
+        paper_title="Magnetic structures",
+        draft_subject="Research inquiry - Magnetic structures",
+        draft_body="Dear Professor Doe,\n\nThis robust work is fascinating.",
+        evidence_summary="- numerical checks | page 1 | We use numerical simulation.",
+        deterministic_checks=[
+            {
+                "sentence": "This robust work is fascinating.",
+                "classification": "UNSUPPORTED",
+                "reason": "No matching saved evidence was found.",
+            },
+        ],
+        reviewer_feedback="Remove forbidden wording and unsupported praise.",
+        attempt_number=1,
     )
 
 
@@ -240,6 +277,22 @@ def test_gemini_reviews_draft_with_structured_payload() -> None:
     assert "second reviewer" in sent["json"]["systemInstruction"]["parts"][0]["text"]
     response_schema = sent["json"]["generationConfig"]["responseFormat"]["text"]["schema"]
     assert response_schema["properties"]["overall_passed"] == {"type": "boolean"}
+
+
+def test_gemini_revises_draft_with_structured_payload() -> None:
+    client = FakeAIClient([FakeAIResponse(200, gemini_payload(valid_revision_text()))])
+    provider = GeminiProvider(AIProviderConfig.from_settings(provider_config()), client=client)
+
+    revision = provider.revise_draft(draft_revision_request())
+
+    sent = client.requests[0]
+    assert revision.subject == "Research inquiry - Magnetic structures"
+    assert "Remove forbidden wording" in sent["json"]["contents"][0]["parts"][0]["text"]
+    response_schema = sent["json"]["generationConfig"]["responseFormat"]["text"]["schema"]
+    assert response_schema["properties"]["body_text"] == {"type": "string"}
+    assert sent["json"]["generationConfig"]["responseFormat"]["text"]["mimeType"] == (
+        "APPLICATION_JSON"
+    )
 
 
 def test_gemini_accepts_official_model_resource_names() -> None:
@@ -440,6 +493,8 @@ def test_provider_selection_and_switching() -> None:
     assert openai.name == "openai"
     assert mock.analyze_paper(request()).title == "Mock"
     assert mock.review_draft(draft_review_request()).overall_passed is True
+    revision_request = draft_revision_request()
+    assert mock.revise_draft(revision_request).subject == revision_request.draft_subject
 
 
 def test_unknown_provider_is_rejected() -> None:

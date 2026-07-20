@@ -16,6 +16,8 @@ from app.services.ai_providers import (
     AIRateLimitError,
     DraftReviewOutput,
     DraftReviewRequest,
+    DraftRevisionOutput,
+    DraftRevisionRequest,
     EvidenceClaim,
     EvidenceClassification,
     MockProvider,
@@ -149,6 +151,7 @@ class SuccessfulBudgetedProvider:
     def __init__(self) -> None:
         self.calls = 0
         self.review_calls = 0
+        self.revise_calls = 0
 
     def analyze_paper(self, request: PaperAnalysisRequest) -> PaperAnalysisOutput:
         del request
@@ -167,6 +170,15 @@ class SuccessfulBudgetedProvider:
             summary="The draft is grounded, concise, and natural.",
             concerns=[],
             suggested_edits=[],
+            confidence=0.9,
+        )
+
+    def revise_draft(self, request: DraftRevisionRequest) -> DraftRevisionOutput:
+        self.revise_calls += 1
+        return DraftRevisionOutput(
+            subject=request.draft_subject,
+            body_text=request.draft_body,
+            revision_notes="No revision needed.",
             confidence=0.9,
         )
 
@@ -201,6 +213,44 @@ class RateLimitedThenSuccessfulProvider(SuccessfulBudgetedProvider):
             self.rate_limit_failures += 1
             raise AIRateLimitError("Gemini returned HTTP 429: rate limit")
         return super().analyze_paper(request)
+
+
+class ReviewFailThenRevisionPassProvider(SuccessfulBudgetedProvider):
+    def review_draft(self, request: DraftReviewRequest) -> DraftReviewOutput:
+        del request
+        self.review_calls += 1
+        if self.review_calls == 1:
+            return DraftReviewOutput(
+                hallucination_check_passed=True,
+                accuracy_check_passed=False,
+                naturalness_check_passed=False,
+                concise=False,
+                overall_passed=False,
+                summary="The draft needs revision.",
+                concerns=["Draft contains generic wording."],
+                suggested_edits=["Make the note more specific and concise."],
+                confidence=0.75,
+            )
+        return DraftReviewOutput(
+            hallucination_check_passed=True,
+            accuracy_check_passed=True,
+            naturalness_check_passed=True,
+            concise=True,
+            overall_passed=True,
+            summary="The revised draft is grounded, concise, and natural.",
+            concerns=[],
+            suggested_edits=[],
+            confidence=0.9,
+        )
+
+    def revise_draft(self, request: DraftRevisionRequest) -> DraftRevisionOutput:
+        self.revise_calls += 1
+        return DraftRevisionOutput(
+            subject=request.draft_subject,
+            body_text=request.draft_body,
+            revision_notes=f"Applied reviewer feedback: {request.reviewer_feedback}",
+            confidence=0.9,
+        )
 
 
 def test_start_outreach_completes_one_valid_candidate(
@@ -305,6 +355,31 @@ def test_start_outreach_uses_fresh_workflow_after_exhausted_failed_run(
         assert workflows[1].id != failed_workflow.id
 
 
+def test_start_outreach_revises_failed_review_before_skipping_candidate(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    text_path = create_parsed_paper_text(tmp_path)
+    patch_workflow_dependencies(monkeypatch, tmp_path, text_path)
+
+    selected_provider = ReviewFailThenRevisionPassProvider()
+    with session_for(tmp_path) as session:
+        candidate_with_publication(session)
+
+        result = start_outreach(session, provider=selected_provider)
+        session.commit()
+
+        draft = session.get(Draft, result.draft.id if result.draft else 0)
+        assert result.success is True
+        assert result.draft is not None
+        assert selected_provider.review_calls == 2
+        assert selected_provider.revise_calls == 1
+        assert result.attempts[0]["draft_revision_count"] == 1
+        assert draft is not None
+        assert "The revised draft is grounded" in draft.ai_review_json
+        assert "I was mainly intrigued by" in draft.body_text
+
+
 def test_start_outreach_skips_rate_limited_candidate_and_continues(
     tmp_path: Path,
     monkeypatch: Any,
@@ -406,6 +481,15 @@ def patch_workflow_dependencies(
     )
     monkeypatch.setattr("app.services.research_workflow.required_attachments_ready", lambda: True)
     monkeypatch.setattr("app.services.drafting.required_attachments_ready", lambda *_: True)
+    monkeypatch.setattr(
+        "app.services.ai_usage.get_settings",
+        lambda: Settings(
+            runtime_data_dir=tmp_path / "data",
+            private_asset_dir=tmp_path / "private_assets",
+            ai_max_requests_per_workflow=8,
+            ai_daily_request_limit=100,
+        ),
+    )
     monkeypatch.setattr(
         "app.services.papers.get_settings",
         lambda: SimpleNamespace(

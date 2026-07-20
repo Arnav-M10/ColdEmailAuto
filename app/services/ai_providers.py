@@ -141,6 +141,24 @@ class DraftReviewOutput(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
 
 
+class DraftRevisionRequest(BaseModel):
+    recipient_name: str
+    paper_title: str
+    draft_subject: str
+    draft_body: str
+    evidence_summary: str
+    deterministic_checks: list[dict[str, str]]
+    reviewer_feedback: str
+    attempt_number: int = Field(ge=1, le=3)
+
+
+class DraftRevisionOutput(BaseModel):
+    subject: str = Field(min_length=1, max_length=240)
+    body_text: str = Field(min_length=1, max_length=4000)
+    revision_notes: str = Field(min_length=1, max_length=1200)
+    confidence: float = Field(ge=0.0, le=1.0)
+
+
 class AIProvider(Protocol):
     name: str
     model: str
@@ -148,6 +166,8 @@ class AIProvider(Protocol):
     def analyze_paper(self, request: PaperAnalysisRequest) -> PaperAnalysisOutput: ...
 
     def review_draft(self, request: DraftReviewRequest) -> DraftReviewOutput: ...
+
+    def revise_draft(self, request: DraftRevisionRequest) -> DraftRevisionOutput: ...
 
 
 class AIHTTPResponseLike(Protocol):
@@ -266,6 +286,30 @@ class GeminiProvider:
             raise last_error
         raise AIResponseError("Gemini did not return a draft review.")
 
+    def revise_draft(self, request: DraftRevisionRequest) -> DraftRevisionOutput:
+        last_error: AIProviderError | None = None
+        total_attempts = max(self.config.retries, 0) + 1
+        for attempt in range(total_attempts):
+            try:
+                text = self._generate_text(
+                    system_instruction=(
+                        "You revise one local, human-supervised outreach email draft. "
+                        "Use only the supplied evidence and reviewer feedback. Keep the email "
+                        "short, natural, and specific. Never add unsupported facts. Return JSON "
+                        "only."
+                    ),
+                    prompt=build_draft_revision_prompt(request),
+                    schema=gemini_draft_revision_schema(),
+                )
+                return validate_draft_revision_json(text, call_name="draft_revision")
+            except (AITimeoutError, AITransientError, AIResponseError) as exc:
+                last_error = exc
+                sleep_before_retry(exc, attempt=attempt, total_attempts=total_attempts)
+                continue
+        if last_error is not None:
+            raise last_error
+        raise AIResponseError("Gemini did not return a draft revision.")
+
     def _generate_text(
         self,
         *,
@@ -361,6 +405,10 @@ class OpenAIProvider:
         del request
         raise AIConfigurationError("OpenAI provider is reserved for later and is not implemented.")
 
+    def revise_draft(self, request: DraftRevisionRequest) -> DraftRevisionOutput:
+        del request
+        raise AIConfigurationError("OpenAI provider is reserved for later and is not implemented.")
+
 
 class MockProvider:
     name = "mock"
@@ -370,8 +418,10 @@ class MockProvider:
         self,
         output: PaperAnalysisOutput | AIProviderError,
         draft_review_output: DraftReviewOutput | AIProviderError | None = None,
+        draft_revision_output: DraftRevisionOutput | AIProviderError | None = None,
     ) -> None:
         self.output = output
+        self.draft_revision_output = draft_revision_output
         self.draft_review_output = draft_review_output or DraftReviewOutput(
             hallucination_check_passed=True,
             accuracy_check_passed=True,
@@ -385,6 +435,7 @@ class MockProvider:
         )
         self.calls = 0
         self.review_calls = 0
+        self.revise_calls = 0
 
     def analyze_paper(self, request: PaperAnalysisRequest) -> PaperAnalysisOutput:
         del request
@@ -399,6 +450,19 @@ class MockProvider:
         if isinstance(self.draft_review_output, AIProviderError):
             raise self.draft_review_output
         return self.draft_review_output
+
+    def revise_draft(self, request: DraftRevisionRequest) -> DraftRevisionOutput:
+        self.revise_calls += 1
+        if isinstance(self.draft_revision_output, AIProviderError):
+            raise self.draft_revision_output
+        if self.draft_revision_output is not None:
+            return self.draft_revision_output
+        return DraftRevisionOutput(
+            subject=request.draft_subject,
+            body_text=request.draft_body,
+            revision_notes="Mock provider kept the draft unchanged.",
+            confidence=0.9,
+        )
 
 
 def get_ai_provider(
@@ -456,6 +520,29 @@ def build_draft_review_prompt(request: DraftReviewRequest) -> str:
         f"Subject: {request.draft_subject}\n\n"
         "Draft body:\n"
         f"{request.draft_body}\n\n"
+        "Evidence summary:\n"
+        f"{request.evidence_summary}\n\n"
+        "Deterministic sentence checks:\n"
+        f"{json.dumps(request.deterministic_checks, ensure_ascii=True)}"
+    )
+
+
+def build_draft_revision_prompt(request: DraftRevisionRequest) -> str:
+    return (
+        "Revise the outreach email below using the reviewer feedback.\n"
+        "Rules: keep exactly two concise body paragraphs before the signoff; keep the body "
+        "105-145 words excluding the signoff; use simple human wording; avoid generic praise; "
+        "avoid forbidden AI-sounding words; do not add facts that are not in the evidence; keep "
+        "the signoff from Arnav Mittal.\n"
+        "Return one JSON object with keys: subject, body_text, revision_notes, confidence.\n\n"
+        f"Attempt: {request.attempt_number}\n"
+        f"Recipient: {request.recipient_name}\n"
+        f"Paper title: {request.paper_title}\n"
+        f"Current subject: {request.draft_subject}\n\n"
+        "Current draft:\n"
+        f"{request.draft_body}\n\n"
+        "Reviewer feedback:\n"
+        f"{request.reviewer_feedback}\n\n"
         "Evidence summary:\n"
         f"{request.evidence_summary}\n\n"
         "Deterministic sentence checks:\n"
@@ -569,6 +656,19 @@ def gemini_draft_review_schema() -> dict[str, Any]:
             "suggested_edits",
             "confidence",
         ],
+    }
+
+
+def gemini_draft_revision_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "subject": {"type": "string"},
+            "body_text": {"type": "string"},
+            "revision_notes": {"type": "string"},
+            "confidence": {"type": "number"},
+        },
+        "required": ["subject", "body_text", "revision_notes", "confidence"],
     }
 
 
@@ -739,6 +839,24 @@ def validate_draft_review_json(
         return DraftReviewOutput.model_validate(parsed)
     except ValidationError as exc:
         raise AIResponseError(f"AI draft-review output failed schema validation: {exc}") from exc
+
+
+def validate_draft_revision_json(
+    text: str,
+    *,
+    call_name: str = "draft_revision",
+) -> DraftRevisionOutput:
+    log_ai_raw_response(call_name=call_name, text=text)
+    try:
+        parsed = parse_provider_json(text, call_name=call_name)
+    except json.JSONDecodeError as exc:
+        raise AIResponseError(
+            f"AI provider returned malformed JSON during {call_name}: {exc.msg}"
+        ) from exc
+    try:
+        return DraftRevisionOutput.model_validate(parsed)
+    except ValidationError as exc:
+        raise AIResponseError(f"AI draft-revision output failed schema validation: {exc}") from exc
 
 
 def parse_provider_json(text: str, *, call_name: str) -> Any:
