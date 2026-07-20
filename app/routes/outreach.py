@@ -35,7 +35,7 @@ def outreach_home(request: Request) -> HTMLResponse:
     )
 
 
-@router.post("/outreach/start", response_class=HTMLResponse)
+@router.post("/outreach/start", response_class=HTMLResponse, response_model=None)
 def outreach_start(
     request: Request,
     csrf: str = Form(...),
