@@ -26,7 +26,8 @@ Implemented so far:
 - Publication memory with OpenAlex/Crossref normalization, manual Scholar reconciliation, deduplication, author identity review, and paper scoring.
 - Lawful PDF retrieval through the safe fetcher, including arXiv PDF planning and source provenance.
 - Provider-based AI analysis architecture with Gemini as the default provider.
-- AI-assisted research workflow from candidate to automatically selected paper, lawful PDF retrieval, provider-backed analysis, and local draft review.
+- One-button Start Outreach flow that chooses an uncontacted local candidate, resolves high-confidence OpenAlex identity, ranks papers, retrieves lawful PDFs, analyzes the paper, generates the email, runs a second AI review, and shows a copy-ready draft.
+- AI-assisted research workflow internals remain available as debugging tools for candidate, publication, paper, and draft inspection.
 - Researcher intelligence from recent publication metadata, deterministic topic clusters, email-usefulness scoring, and a manual Outlook copy-review page.
 - Rich local paper analysis fields, text-quality metadata, deterministic evidence extraction, and stricter draft approval gates.
 - Structured logging, request IDs, security headers, secret scan, dependency audit, and no-send regression tests.
@@ -210,7 +211,11 @@ If `GEMINI_API_KEY` or `AI_API_KEY` is missing, the app will show a clear setup 
 
 ## Research Workflow
 
-Open a candidate and use `Run Research Workflow` to continue from saved candidate/publication metadata to a selected paper. The workflow ranks publications by outreach fit, skips papers without lawful full text, retrieves the selected PDF through the safe fetcher, extracts text, analyzes the full paper through the configured AI provider, generates a local draft, and stops for review.
+Use `Start Outreach` from the first screen for the normal workflow. The agent chooses the best uncontacted candidate from saved candidates or screened discovery previews, auto-confirms OpenAlex only when confidence is high, retrieves and ranks publications, tries lawful PDFs in ranked order, analyzes the selected paper, writes the email, runs a second AI review, and opens a copy-ready draft page.
+
+The older candidate, publication, paper, and discovery pages are retained under Debug tools for inspection and repair. They are no longer the normal path.
+
+Opening a candidate and using `Run Research Workflow` is still available for debugging a specific candidate. It uses the same safe internals as Start Outreach.
 
 Fetching publications is separate from running the research workflow. Importing or confirming
 OpenAlex publications should not create a workflow run unless it is resuming an explicit workflow

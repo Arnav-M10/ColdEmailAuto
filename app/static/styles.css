@@ -121,6 +121,26 @@ textarea {
   color: #0f3f3a;
 }
 
+.debug-nav {
+  margin-top: 8px;
+  border-top: 1px solid rgb(255 255 255 / 12%);
+  padding-top: 10px;
+}
+
+.debug-nav summary {
+  cursor: pointer;
+  color: #a8b3c3;
+  font-size: 0.82rem;
+  font-weight: 760;
+  padding: 8px 12px;
+}
+
+.debug-link {
+  margin-top: 4px;
+  padding-left: 18px;
+  font-size: 0.9rem;
+}
+
 .safety-card {
   margin-top: auto;
   display: grid;
@@ -273,6 +293,77 @@ h3 {
   display: block;
   margin: 6px 0;
   font-size: 1.1rem;
+}
+
+.outreach-hero {
+  min-height: 260px;
+  display: grid;
+  align-items: center;
+}
+
+.outreach-start {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.outreach-start h2 {
+  font-size: 1.55rem;
+}
+
+.start-outreach-button {
+  min-width: 190px;
+  min-height: 54px;
+  font-size: 1rem;
+}
+
+.agent-attempts {
+  display: grid;
+  gap: 10px;
+}
+
+.agent-attempt {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfd;
+  padding: 14px;
+}
+
+.agent-attempt div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.agent-attempt span,
+.agent-attempt p {
+  color: var(--muted);
+}
+
+.finished-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.copy-field-label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 720;
+  margin-bottom: 14px;
+}
+
+.copy-field-label input,
+.copy-field-label textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #fbfcfd;
+  color: var(--text);
 }
 
 .detail-list {

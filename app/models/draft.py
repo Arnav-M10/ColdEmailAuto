@@ -16,7 +16,7 @@ class Draft(Base, TimestampMixin):
     body_html: Mapped[str | None] = mapped_column(Text, nullable=True)
     word_count: Mapped[int] = mapped_column(Integer, nullable=False)
     generation_version: Mapped[str] = mapped_column(String(80), nullable=False, default="manual-v1")
+    ai_review_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     approved_by_user: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     outlook_message_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
-

@@ -18,14 +18,15 @@ from app.routes.candidates import router as candidates_router
 from app.routes.discovery import router as discovery_router
 from app.routes.drafts import router as drafts_router
 from app.routes.followups import router as followups_router
+from app.routes.outreach import router as outreach_router
 from app.routes.papers import router as papers_router
 from app.routes.publications import router as publications_router
 from app.routes.settings import router as settings_router
 from app.safety import assert_no_send_capability
+from app.security.csrf import csrf_token
 from app.security.headers import apply_security_headers
 from app.services.assets import build_asset_manifest
 from app.services.profile import load_profile
-from app.services.workflow_stats import dashboard_metrics
 
 settings = get_settings()
 templates = Jinja2Templates(directory=str(settings.project_root / "app" / "templates"))
@@ -54,6 +55,7 @@ def create_app() -> FastAPI:
     app.include_router(discovery_router)
     app.include_router(drafts_router)
     app.include_router(followups_router)
+    app.include_router(outreach_router)
     app.include_router(papers_router)
     app.include_router(publications_router)
     app.include_router(settings_router)
@@ -83,12 +85,13 @@ def create_app() -> FastAPI:
 
     @app.get("/", response_class=HTMLResponse)
     def dashboard(request: Request, db: Annotated[Session, Depends(get_db)]) -> HTMLResponse:
+        del db
         return render_page(
             request=request,
-            template_name="dashboard.html",
-            active_page="dashboard",
-            page_title="Dashboard",
-            extra_context={"metrics": dashboard_metrics(db)},
+            template_name="outreach.html",
+            active_page="outreach",
+            page_title="Start Outreach",
+            extra_context={"result": None, "csrf_token": csrf_token()},
         )
 
     @app.get("/health", response_class=HTMLResponse)

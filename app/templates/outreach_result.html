@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="panel finished-draft">
+    <div class="panel-header">
+      <div>
+        <h2>Finished Draft</h2>
+        <p>{{ "AI review passed" if ai_review and ai_review.overall_passed else "Review needs attention" }}</p>
+      </div>
+      <span class="status-pill">{{ "Ready to copy" if review.ready and ai_review and ai_review.overall_passed else "Check first" }}</span>
+    </div>
+
+    <div class="finished-grid">
+      <div class="review-block">
+        <span class="metric-label">To</span>
+        {% if review.recipient_email %}
+          <strong id="recipientText">{{ review.recipient_email }}</strong>
+          <p>{{ review.recipient_source_url }}</p>
+        {% else %}
+          <strong>MISSING_OFFICIAL_EMAIL</strong>
+          <p>No verified official email is stored.</p>
+        {% endif %}
+      </div>
+      <div class="review-block">
+        <span class="metric-label">Professor</span>
+        <strong>{{ candidate.full_name if candidate else "Selected candidate" }}</strong>
+        <p>{% if review.publication %}{{ review.publication.title }}{% else %}Paper not recorded{% endif %}</p>
+      </div>
+      <div class="review-block">
+        <span class="metric-label">Second AI Review</span>
+        <strong>{{ "Passed" if ai_review and ai_review.overall_passed else "Needs attention" }}</strong>
+        <p>{% if ai_review %}{{ ai_review.summary }}{% else %}No AI review was saved.{% endif %}</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel secondary-panel">
+    <div class="panel-header">
+      <div><h2>Email</h2><p>Copy-ready draft. No send capability exists.</p></div>
+    </div>
+    <label class="wide copy-field-label">Subject
+      <input id="subjectText" value="{{ draft.subject }}" readonly>
+    </label>
+    <label class="wide copy-field-label">Body
+      <textarea id="bodyText" rows="14" readonly>{{ draft.body_text }}</textarea>
+    </label>
+    <div class="form-actions wide split-actions">
+      <button type="button" data-copy-target="subjectText">Copy subject</button>
+      <button type="button" data-copy-target="bodyText">Copy body</button>
+      <button type="button" id="copyComplete">Copy complete email</button>
+    </div>
+  </section>
+
+  {% if ai_review and ai_review.concerns %}
+    <section class="panel secondary-panel">
+      <div class="panel-header"><div><h2>AI Review Notes</h2><p>Items to inspect before copying.</p></div></div>
+      <div class="warning-list">
+        {% for concern in ai_review.concerns %}
+          <div>{{ concern }}</div>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+
+  <section class="panel secondary-panel">
+    <div class="panel-header"><div><h2>Evidence</h2><p>Paper-specific claims used in the draft.</p></div></div>
+    {% if review.evidence %}
+      <div class="table-wrap compact">
+        <table>
+          <thead><tr><th>Claim</th><th>Page</th><th>Evidence</th></tr></thead>
+          <tbody>
+            {% for item in review.evidence %}
+              <tr>
+                <td>{{ item.claim }}</td>
+                <td>{{ item.page_number }}</td>
+                <td>{{ item.evidence_text }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty-state"><h3>No evidence recorded</h3><p>The draft should not be copied until evidence is present.</p></div>
+    {% endif %}
+  </section>
+
+  <script src="{{ url_for('static', path='manual_review.js').path }}"></script>
+{% endblock %}

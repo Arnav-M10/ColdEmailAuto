@@ -10,6 +10,7 @@ from app.services.ai_providers import (
     AIProviderError,
     AIResponseError,
     AITimeoutError,
+    DraftReviewRequest,
     EvidenceClaim,
     EvidenceClassification,
     GeminiProvider,
@@ -128,6 +129,39 @@ def gemini_payload(text: str) -> dict[str, Any]:
     return {"candidates": [{"content": {"parts": [{"text": text}]}}]}
 
 
+def valid_review_text() -> str:
+    return """
+    {
+      "hallucination_check_passed": true,
+      "accuracy_check_passed": true,
+      "naturalness_check_passed": true,
+      "concise": true,
+      "overall_passed": true,
+      "summary": "The draft is grounded and natural.",
+      "concerns": [],
+      "suggested_edits": [],
+      "confidence": 0.91
+    }
+    """
+
+
+def draft_review_request() -> DraftReviewRequest:
+    return DraftReviewRequest(
+        recipient_name="Professor Jane Doe",
+        paper_title="Magnetic structures",
+        draft_subject="Research inquiry - Magnetic structures",
+        draft_body="Dear Professor Doe,\n\nI was mainly intrigued by the numerical checks.",
+        evidence_summary="- numerical checks | page 1 | We use numerical simulation.",
+        deterministic_checks=[
+            {
+                "sentence": "I was mainly intrigued by the numerical checks.",
+                "classification": "SUPPORTED",
+                "reason": "Grounded in evidence.",
+            },
+        ],
+    )
+
+
 def test_missing_gemini_api_key_is_configuration_error() -> None:
     with pytest.raises(AIConfigurationError, match="Gemini API key is missing"):
         get_ai_provider(provider_config(api_key=None))
@@ -169,6 +203,22 @@ def test_gemini_uses_current_official_rest_request_shape() -> None:
     assert "contents" in sent["json"]
     assert "systemInstruction" in sent["json"]
     assert sent["timeout"] == 12.0
+
+
+def test_gemini_reviews_draft_with_structured_payload() -> None:
+    client = FakeAIClient([FakeAIResponse(200, gemini_payload(valid_review_text()))])
+    provider = GeminiProvider(AIProviderConfig.from_settings(provider_config()), client=client)
+
+    review = provider.review_draft(draft_review_request())
+
+    sent = client.requests[0]
+    assert review.overall_passed is True
+    assert provider.model == "gemini-test"
+    assert sent["url"].endswith("/models/gemini-test:generateContent")
+    assert "second reviewer" in sent["json"]["systemInstruction"]["parts"][0]["text"]
+    assert sent["json"]["generationConfig"]["responseFormat"]["text"]["schema"]["properties"][
+        "overall_passed"
+    ] == {"type": "boolean"}
 
 
 def test_gemini_accepts_official_model_resource_names() -> None:
@@ -286,6 +336,7 @@ def test_provider_selection_and_switching() -> None:
     assert gemini.name == "gemini"
     assert openai.name == "openai"
     assert mock.analyze_paper(request()).title == "Mock"
+    assert mock.review_draft(draft_review_request()).overall_passed is True
 
 
 def test_unknown_provider_is_rejected() -> None:

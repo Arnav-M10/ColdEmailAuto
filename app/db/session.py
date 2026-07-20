@@ -46,6 +46,7 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expi
 def initialize_database(target_engine: Engine = engine) -> None:
     Base.metadata.create_all(bind=target_engine)
     _ensure_candidate_openalex_author_column(target_engine)
+    _ensure_draft_ai_review_column(target_engine)
     _ensure_publication_ranking_columns(target_engine)
     _ensure_authorship_openalex_author_column(target_engine)
     _ensure_research_workflow_columns(target_engine)
@@ -62,6 +63,19 @@ def _ensure_candidate_openalex_author_column(target_engine: Engine) -> None:
         if "openalex_author_id" not in columns:
             connection.exec_driver_sql(
                 "ALTER TABLE candidates ADD COLUMN openalex_author_id VARCHAR(200)",
+            )
+
+
+def _ensure_draft_ai_review_column(target_engine: Engine) -> None:
+    if target_engine.dialect.name != "sqlite":
+        return
+    with target_engine.begin() as connection:
+        columns = {
+            row[1] for row in connection.exec_driver_sql("PRAGMA table_info(drafts)").fetchall()
+        }
+        if "ai_review_json" not in columns:
+            connection.exec_driver_sql(
+                "ALTER TABLE drafts ADD COLUMN ai_review_json TEXT DEFAULT '{}' NOT NULL",
             )
 
 

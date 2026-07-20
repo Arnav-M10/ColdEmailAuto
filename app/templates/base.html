@@ -20,22 +20,32 @@
         </div>
         <nav class="nav-list">
           {% set nav_items = [
-            ("dashboard", "/", "Dashboard"),
-            ("health", "/health", "Health"),
-            ("discovery", "/discovery", "Discovery"),
-            ("candidates", "/candidates", "Candidates"),
-            ("publications", "/publications", "Publications"),
-            ("papers", "/papers", "Papers"),
+            ("outreach", "/outreach", "Start Outreach"),
             ("drafts", "/drafts", "Drafts"),
-            ("follow_ups", "/follow-ups", "Follow-Ups"),
-            ("contact_history", "/contact-history", "History"),
-            ("settings", "/settings", "Settings")
+            ("settings", "/settings", "Settings"),
+            ("health", "/health", "Health")
           ] %}
           {% for key, href, label in nav_items %}
             <a class="nav-link{% if active_page == key %} active{% endif %}" href="{{ href }}">
               <span>{{ label }}</span>
             </a>
           {% endfor %}
+          <details class="debug-nav">
+            <summary>Debug tools</summary>
+            {% set debug_nav_items = [
+              ("discovery", "/discovery", "Discovery"),
+              ("candidates", "/candidates", "Candidates"),
+              ("publications", "/publications", "Publications"),
+              ("papers", "/papers", "Papers"),
+              ("follow_ups", "/follow-ups", "Follow-Ups"),
+              ("contact_history", "/contact-history", "History")
+            ] %}
+            {% for key, href, label in debug_nav_items %}
+              <a class="nav-link debug-link{% if active_page == key %} active{% endif %}" href="{{ href }}">
+                <span>{{ label }}</span>
+              </a>
+            {% endfor %}
+          </details>
         </nav>
         <div class="safety-card">
           <strong>Drafts only</strong>
