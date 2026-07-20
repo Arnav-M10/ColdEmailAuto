@@ -626,7 +626,10 @@ def test_run_research_workflow_does_not_render_selection_for_single_eligible_pap
     assert "Single Eligible Arxiv Paper" in response.text
     with session_factory() as session:
         workflow = session.scalars(select(ResearchWorkflowRun)).one()
-        assert workflow.status == "WAITING_FOR_MANUAL_PAPER_SELECTION"
+        assert workflow.status == "FAILED"
+        assert "All automatically suitable publications failed" in (
+            workflow.failure_reason or ""
+        )
         assert "all_suitable_papers_exhausted" in workflow.retrieval_result_json
 
 

@@ -16,7 +16,7 @@ from app.models.paper import EvidenceClassification, EvidenceItem, PaperAnalysis
 from app.models.publication import Authorship, Publication
 from app.models.workflow import ResearchWorkflowRun
 from app.services.ai_analysis import arnav_profile_summary, create_ai_analysis_from_text
-from app.services.ai_providers import AIProvider, AIProviderError, get_ai_provider
+from app.services.ai_providers import AIProvider, AIProviderError, AIRateLimitError, get_ai_provider
 from app.services.ai_usage import (
     AIRequestLimitError,
     assert_ai_request_allowed,
@@ -139,11 +139,10 @@ def run_research_workflow(
         )
         workflow.rejected_alternatives_json = json.dumps(rejected)
         if not ranked_selections:
-            workflow.status = "WAITING_FOR_MANUAL_PAPER_SELECTION"
+            workflow.status = "FAILED"
             workflow.failed_stage = None
             workflow.failure_reason = (
-                "No publication passed the automatic suitability threshold. "
-                "Manual paper selection is required before PDF retrieval or analysis."
+                "No publication had a lawful retrievable PDF for the automatic workflow."
             )
             workflow.selected_publication_id = None
             workflow.retrieval_result_json = json.dumps(
@@ -170,33 +169,14 @@ def run_research_workflow(
             commit_workflow_checkpoint(session, enabled=commit_checkpoints)
             return workflow
         if automatic_selection_tie(ranked_selections):
-            workflow.status = "WAITING_FOR_MANUAL_PAPER_SELECTION"
-            workflow.failed_stage = None
-            workflow.current_stage = "Resolving tied publications"
-            workflow.failure_reason = (
-                "Multiple publications are tied for the highest automatic outreach score. "
-                "Choose a publication before PDF retrieval or analysis."
-            )
-            workflow.selected_publication_id = None
-            workflow.retrieval_result_json = json.dumps(
-                {
-                    "status": "automatic_selection_tie",
-                    "attempts": [],
-                    "tied_publications": [
-                        retrieval_attempt_record(
-                            selection=selection,
-                            attempted=False,
-                            status="tied_before_retrieval",
-                            rejection_reason="Tied highest automatic outreach score.",
-                        )
-                        for selection in ranked_selections
-                        if abs(selection.score - ranked_selections[0].score)
-                        <= AUTOMATIC_SELECTION_TIE_EPSILON
-                    ],
+            logger.info(
+                "automatic_selection_tie_continuing_with_top_ranked",
+                extra={
+                    "candidate_id": candidate.id,
+                    "publication_id": ranked_selections[0].publication.id,
+                    "total_score": ranked_selections[0].score,
                 },
             )
-            commit_workflow_checkpoint(session, enabled=commit_checkpoints)
-            return workflow
 
         paper_file: PaperFile | None = None
         selected_publication: Publication | None = None
@@ -274,12 +254,13 @@ def run_research_workflow(
             break
 
         if paper_file is None or selected_publication is None or selected_selection is None:
-            workflow.status = "WAITING_FOR_MANUAL_PAPER_SELECTION"
+            workflow.status = "FAILED"
             workflow.failed_stage = None
             workflow.current_stage = "Selecting next paper"
             workflow.failure_reason = (
                 "All automatically suitable publications failed lawful PDF retrieval. "
-                "Review the retrieval details or choose a different paper as an optional override."
+                "The one-button workflow tried each ranked candidate paper without opening "
+                "manual selection."
             )
             workflow.selected_publication_id = None
             workflow.retrieval_result_json = json.dumps(
@@ -382,6 +363,13 @@ def run_research_workflow(
         commit_workflow_checkpoint(session, enabled=commit_checkpoints)
     except WorkflowStageError as exc:
         fail_workflow(workflow, exc.stage, exc.reason)
+    except AIRateLimitError:
+        workflow.status = "SKIPPED_PROVIDER_RATE_LIMIT"
+        workflow.failed_stage = None
+        workflow.failure_reason = (
+            "AI provider rate limit persisted after retries; the outreach agent will try "
+            "the next candidate."
+        )
     except (AIProviderError, AIRequestLimitError, ValueError) as exc:
         fail_workflow(workflow, workflow.current_stage, str(exc))
     except OperationalError as exc:
@@ -583,11 +571,6 @@ def suitability_rejections(
         reasons.append("Publication is not recent enough.")
     if any(str(warning).startswith("PORTFOLIO_INPUT_UNAVAILABLE") for warning in warnings):
         reasons.append("Portfolio input is unavailable, so automatic ranking is blocked.")
-    if authorship.score < MIN_AUTOMATIC_PUBLICATION_SCORE:
-        reasons.append(
-            f"Overall outreach score {authorship.score:g} is below the automatic "
-            f"threshold of {MIN_AUTOMATIC_PUBLICATION_SCORE:g}."
-        )
     eligibility = pdf_eligibility or pdf_eligibility_for_publication(publication)
     if not eligibility.eligible:
         reasons.append(eligibility.rejection_reason or "No lawful full text is available.")

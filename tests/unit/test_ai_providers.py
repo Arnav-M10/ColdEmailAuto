@@ -1,5 +1,5 @@
 import logging
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -9,6 +9,7 @@ from app.services.ai_providers import (
     AIConfigurationError,
     AIProviderConfig,
     AIProviderError,
+    AIRateLimitError,
     AIResponseError,
     AITimeoutError,
     DraftReviewRequest,
@@ -199,10 +200,12 @@ def test_gemini_uses_current_official_rest_request_shape() -> None:
     generation_config = sent["json"]["generationConfig"]
     assert generation_config["temperature"] == 0.1
     assert generation_config["maxOutputTokens"] == 1024
-    assert generation_config["responseMimeType"] == "application/json"
-    assert "responseFormat" not in generation_config
-    assert generation_config["responseSchema"]["type"] == "OBJECT"
-    assert generation_config["responseSchema"]["properties"]["evidence"]["type"] == "ARRAY"
+    assert "responseMimeType" not in generation_config
+    assert "responseSchema" not in generation_config
+    response_format = generation_config["responseFormat"]["text"]
+    assert response_format["mimeType"] == "application/json"
+    assert response_format["schema"]["type"] == "object"
+    assert response_format["schema"]["properties"]["evidence"]["type"] == "array"
     assert "contents" in sent["json"]
     assert "systemInstruction" in sent["json"]
     assert sent["timeout"] == 12.0
@@ -235,9 +238,8 @@ def test_gemini_reviews_draft_with_structured_payload() -> None:
     assert provider.model == "gemini-test"
     assert sent["url"].endswith("/models/gemini-test:generateContent")
     assert "second reviewer" in sent["json"]["systemInstruction"]["parts"][0]["text"]
-    assert sent["json"]["generationConfig"]["responseSchema"]["properties"]["overall_passed"] == {
-        "type": "BOOLEAN",
-    }
+    response_schema = sent["json"]["generationConfig"]["responseFormat"]["text"]["schema"]
+    assert response_schema["properties"]["overall_passed"] == {"type": "boolean"}
 
 
 def test_gemini_accepts_official_model_resource_names() -> None:
@@ -280,12 +282,46 @@ def test_gemini_timeout_is_reported() -> None:
         provider.analyze_paper(request())
 
 
-def test_malformed_json_is_rejected() -> None:
+def test_malformed_json_is_rejected_and_logged(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     client = FakeAIClient([FakeAIResponse(200, gemini_payload("not json"))])
     provider = GeminiProvider(AIProviderConfig.from_settings(provider_config()), client=client)
 
-    with pytest.raises(AIResponseError, match="malformed JSON"):
-        provider.analyze_paper(request())
+    with caplog.at_level(logging.INFO, logger="professor_outreach.ai"):
+        with pytest.raises(AIResponseError, match="paper_analysis"):
+            provider.analyze_paper(request())
+
+    raw_record = next(record for record in caplog.records if record.msg == "ai_raw_response")
+    raw_record_extra = cast(Any, raw_record)
+    assert raw_record_extra.call_name == "paper_analysis"
+    assert raw_record_extra.payload["raw_text"] == "not json"
+
+
+def test_common_json_formatting_issues_are_repaired(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    fenced = (
+        "Here is the JSON.\n```json\n"
+        + valid_output_text().replace(
+            '"confidence": 0.9\n        }',
+            '"confidence": 0.9,\n        }',
+        )
+        + "\n```\nDone."
+    )
+    client = FakeAIClient([FakeAIResponse(200, gemini_payload(fenced))])
+    provider = GeminiProvider(AIProviderConfig.from_settings(provider_config()), client=client)
+
+    with caplog.at_level(logging.INFO, logger="professor_outreach.ai"):
+        output = provider.analyze_paper(request())
+
+    assert output.title == "Magnetic structures"
+    repair_records = [
+        record for record in caplog.records if record.msg == "ai_json_repair_applied"
+    ]
+    assert repair_records
+    repair_record_extra = cast(Any, repair_records[-1])
+    assert repair_record_extra.call_name == "paper_analysis"
 
 
 def test_schema_validation_failure_is_rejected() -> None:
@@ -296,13 +332,14 @@ def test_schema_validation_failure_is_rejected() -> None:
         provider.analyze_paper(request())
 
 
-def test_retry_logic_recovers_from_bad_first_response() -> None:
+def test_retry_logic_recovers_from_bad_first_response(monkeypatch: pytest.MonkeyPatch) -> None:
     client = FakeAIClient(
         [
             FakeAIResponse(200, gemini_payload("not json")),
             FakeAIResponse(200, gemini_payload(valid_output_text())),
         ],
     )
+    monkeypatch.setattr("app.services.ai_providers.time.sleep", lambda delay: None)
     provider = GeminiProvider(
         AIProviderConfig.from_settings(provider_config(retries=1)),
         client=client,
@@ -312,6 +349,53 @@ def test_retry_logic_recovers_from_bad_first_response() -> None:
 
     assert output.title == "Magnetic structures"
     assert client.calls == 2
+
+
+def test_gemini_429_retries_with_exponential_backoff(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    delays: list[float] = []
+    client = FakeAIClient(
+        [
+            FakeAIResponse(429, {"error": {"message": "rate limit"}}),
+            FakeAIResponse(200, gemini_payload(valid_output_text())),
+        ],
+    )
+    monkeypatch.setattr("app.services.ai_providers.time.sleep", delays.append)
+    provider = GeminiProvider(
+        AIProviderConfig.from_settings(provider_config(retries=1)),
+        client=client,
+    )
+
+    output = provider.analyze_paper(request())
+
+    assert output.title == "Magnetic structures"
+    assert client.calls == 2
+    assert delays == [1.0]
+
+
+def test_gemini_persistent_429_raises_rate_limit_after_retries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    delays: list[float] = []
+    client = FakeAIClient(
+        [
+            FakeAIResponse(429, {"error": {"message": "rate limit one"}}),
+            FakeAIResponse(429, {"error": {"message": "rate limit two"}}),
+            FakeAIResponse(429, {"error": {"message": "rate limit three"}}),
+        ],
+    )
+    monkeypatch.setattr("app.services.ai_providers.time.sleep", delays.append)
+    provider = GeminiProvider(
+        AIProviderConfig.from_settings(provider_config(retries=2)),
+        client=client,
+    )
+
+    with pytest.raises(AIRateLimitError, match="HTTP 429"):
+        provider.analyze_paper(request())
+
+    assert client.calls == 3
+    assert delays == [1.0, 2.0]
 
 
 def test_evidence_must_be_grounded_in_paper_text() -> None:

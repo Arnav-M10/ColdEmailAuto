@@ -13,6 +13,7 @@ from app.models.paper import PaperFile
 from app.models.publication import Authorship, Publication
 from app.models.workflow import ResearchWorkflowRun
 from app.services.ai_providers import (
+    AIRateLimitError,
     DraftReviewOutput,
     DraftReviewRequest,
     EvidenceClaim,
@@ -38,29 +39,39 @@ def session_for(tmp_path: Path) -> Session:
     return session
 
 
-def candidate_with_publication(session: Session) -> Candidate:
+def candidate_with_publication(
+    session: Session,
+    *,
+    full_name: str = "Professor Jane Doe",
+    email: str = "jane@example.edu",
+    openalex_author_id: str = "https://openalex.org/A1",
+    publication_title: str = "Magnetic Structures in Time-Domain Surveys",
+    doi: str = "10.1000/outreach-unit",
+    arxiv_id: str = "2504.33333",
+    openalex_work_id: str = "https://openalex.org/WUNIT",
+) -> Candidate:
     candidate = create_candidate(
         session,
-        full_name="Professor Jane Doe",
+        full_name=full_name,
         title="Assistant Professor",
         institution="Example University",
         department="Physics",
         research_area="magnetic fields computational astrophysics",
-        official_profile_url="https://example.edu/jane",
+        official_profile_url=f"https://example.edu/{full_name.lower().replace(' ', '-')}",
         notes=None,
     )
-    candidate.openalex_author_id = "https://openalex.org/A1"
+    candidate.openalex_author_id = openalex_author_id
     publication = Publication(
-        title="Magnetic Structures in Time-Domain Surveys",
-        title_fingerprint=title_fingerprint("Magnetic Structures in Time-Domain Surveys"),
+        title=publication_title,
+        title_fingerprint=title_fingerprint(publication_title),
         year=2025,
         venue="Example Journal",
-        doi="10.1000/outreach-unit",
-        arxiv_id="2504.33333",
-        openalex_id="https://openalex.org/WUNIT",
+        doi=doi,
+        arxiv_id=arxiv_id,
+        openalex_id=openalex_work_id,
         source="openalex",
-        open_access_url="https://arxiv.org/abs/2504.33333",
-        pdf_url="https://arxiv.org/pdf/2504.33333",
+        open_access_url=f"https://arxiv.org/abs/{arxiv_id}",
+        pdf_url=f"https://arxiv.org/pdf/{arxiv_id}",
         author_count=2,
         citation_count=9,
         work_type="article",
@@ -74,7 +85,7 @@ def candidate_with_publication(session: Session) -> Candidate:
             publication_id=publication.id,
             author_position=1,
             author_count=2,
-            openalex_author_id="https://openalex.org/A1",
+            openalex_author_id=openalex_author_id,
             confirmed_author_present=True,
             corresponding_author=False,
             role="first_author",
@@ -94,8 +105,8 @@ def candidate_with_publication(session: Session) -> Candidate:
     add_email_address(
         session,
         candidate_id=candidate.id,
-        email="jane@example.edu",
-        source_url="https://example.edu/jane",
+        email=email,
+        source_url=candidate.official_profile_url or "https://example.edu/profile",
         source_type="official_faculty_profile",
         confidence="HIGH",
         verification_status="VERIFIED",
@@ -176,6 +187,19 @@ class ConcurrentWriteDuringAnalysisProvider(MockProvider):
                 ),
             )
         self.concurrent_write_succeeded = True
+        return super().analyze_paper(request)
+
+
+class RateLimitedThenSuccessfulProvider(SuccessfulBudgetedProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.rate_limit_failures = 0
+
+    def analyze_paper(self, request: PaperAnalysisRequest) -> PaperAnalysisOutput:
+        if self.calls == 0:
+            self.calls += 1
+            self.rate_limit_failures += 1
+            raise AIRateLimitError("Gemini returned HTTP 429: rate limit")
         return super().analyze_paper(request)
 
 
@@ -281,6 +305,55 @@ def test_start_outreach_uses_fresh_workflow_after_exhausted_failed_run(
         assert workflows[1].id != failed_workflow.id
 
 
+def test_start_outreach_skips_rate_limited_candidate_and_continues(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    text_path = create_parsed_paper_text(tmp_path)
+    patch_workflow_dependencies(monkeypatch, tmp_path, text_path)
+
+    selected_provider = RateLimitedThenSuccessfulProvider()
+    with session_for(tmp_path) as session:
+        first = candidate_with_publication(
+            session,
+            full_name="Professor First Candidate",
+            email="first@example.edu",
+            openalex_author_id="https://openalex.org/A111",
+            publication_title="First Candidate Rate Limited Paper",
+            doi="10.1000/first-rate-limited",
+            arxiv_id="2504.11111",
+            openalex_work_id="https://openalex.org/W-FIRST",
+        )
+        second = candidate_with_publication(
+            session,
+            full_name="Professor Second Candidate",
+            email="second@example.edu",
+            openalex_author_id="https://openalex.org/A222",
+            publication_title="Second Candidate Successful Paper",
+            doi="10.1000/second-success",
+            arxiv_id="2504.22222",
+            openalex_work_id="https://openalex.org/W-SECOND",
+        )
+
+        result = start_outreach(session, provider=selected_provider)
+        session.commit()
+
+        workflows = (
+            session.query(ResearchWorkflowRun)
+            .order_by(ResearchWorkflowRun.candidate_id.asc())
+            .all()
+        )
+        assert result.success is True
+        assert result.candidate is not None
+        assert result.candidate.id == second.id
+        assert selected_provider.rate_limit_failures == 1
+        assert selected_provider.review_calls == 1
+        assert workflows[0].candidate_id == first.id
+        assert workflows[0].status == "SKIPPED_PROVIDER_RATE_LIMIT"
+        assert workflows[1].candidate_id == second.id
+        assert workflows[1].status == "READY_FOR_REVIEW"
+
+
 def create_parsed_paper_text(tmp_path: Path) -> Path:
     text_dir = tmp_path / "data" / "cache" / "paper_text"
     text_dir.mkdir(parents=True, exist_ok=True)
@@ -306,11 +379,11 @@ def patch_workflow_dependencies(
             publication_id=publication.id,
             original_filename="paper.pdf",
             stored_path="papers/test/paper.pdf",
-            sha256="3" * 64,
+            sha256=f"{publication.id:064x}",
             size_bytes=512,
             page_count=1,
             parsed_text_path=str(text_path.relative_to(tmp_path)),
-            source_url="https://arxiv.org/pdf/2504.33333",
+            source_url=publication.pdf_url or "https://arxiv.org/pdf/2504.33333",
             license_note="arXiv public PDF.",
             text_quality_json="{}",
         )

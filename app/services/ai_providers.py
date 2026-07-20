@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Protocol
@@ -11,6 +12,10 @@ from app.config import Settings, get_settings
 
 PAGE_MARKER_RE = re.compile(r"--- Page ([0-9]+) ---")
 NUMBER_RE = re.compile(r"\b\d+(?:\.\d+)?\b")
+TRAILING_COMMA_RE = re.compile(r",(\s*[}\]])")
+SECRET_TEXT_RE = re.compile(
+    r"(?i)(api[_-]?key|authorization|bearer|token|password|secret)(\s*[:=]\s*)([^\s,\"'}]+)"
+)
 logger = logging.getLogger("professor_outreach.ai")
 CURRENT_GEMINI_MODEL = "gemini-3.5-flash"
 GEMINI_MODEL_ALIASES = {
@@ -63,6 +68,10 @@ class AIResponseError(AIProviderError):
 
 
 class AITransientError(AIProviderError):
+    pass
+
+
+class AIRateLimitError(AITransientError):
     pass
 
 
@@ -208,7 +217,8 @@ class GeminiProvider:
 
     def analyze_paper(self, request: PaperAnalysisRequest) -> PaperAnalysisOutput:
         last_error: AIProviderError | None = None
-        for _attempt in range(max(self.config.retries, 0) + 1):
+        total_attempts = max(self.config.retries, 0) + 1
+        for attempt in range(total_attempts):
             try:
                 text = self._generate_text(
                     system_instruction=(
@@ -219,9 +229,14 @@ class GeminiProvider:
                     prompt=build_analysis_prompt(request),
                     schema=gemini_paper_analysis_schema(),
                 )
-                return validate_provider_json(text, paper_text=request.paper_text)
+                return validate_provider_json(
+                    text,
+                    paper_text=request.paper_text,
+                    call_name="paper_analysis",
+                )
             except (AITimeoutError, AITransientError, AIResponseError) as exc:
                 last_error = exc
+                sleep_before_retry(exc, attempt=attempt, total_attempts=total_attempts)
                 continue
         if last_error is not None:
             raise last_error
@@ -229,7 +244,8 @@ class GeminiProvider:
 
     def review_draft(self, request: DraftReviewRequest) -> DraftReviewOutput:
         last_error: AIProviderError | None = None
-        for _attempt in range(max(self.config.retries, 0) + 1):
+        total_attempts = max(self.config.retries, 0) + 1
+        for attempt in range(total_attempts):
             try:
                 text = self._generate_text(
                     system_instruction=(
@@ -241,9 +257,10 @@ class GeminiProvider:
                     prompt=build_draft_review_prompt(request),
                     schema=gemini_draft_review_schema(),
                 )
-                return validate_draft_review_json(text)
+                return validate_draft_review_json(text, call_name="draft_review")
             except (AITimeoutError, AITransientError, AIResponseError) as exc:
                 last_error = exc
+                sleep_before_retry(exc, attempt=attempt, total_attempts=total_attempts)
                 continue
         if last_error is not None:
             raise last_error
@@ -273,8 +290,12 @@ class GeminiProvider:
             "generationConfig": {
                 "temperature": self.config.temperature,
                 "maxOutputTokens": self.config.max_tokens,
-                "responseMimeType": "application/json",
-                "responseSchema": schema,
+                "responseFormat": {
+                    "text": {
+                        "mimeType": "application/json",
+                        "schema": schema,
+                    },
+                },
             },
         }
         headers = {
@@ -302,8 +323,15 @@ class GeminiProvider:
         )
         if response.status_code in {401, 403}:
             raise AIAuthenticationError("Gemini rejected the API key.")
-        if response.status_code == 429 or response.status_code >= 500:
-            raise AITransientError(f"Gemini returned HTTP {response.status_code}.")
+        if response.status_code == 429:
+            raise AIRateLimitError(
+                f"Gemini returned HTTP 429: {provider_error_detail(response_payload)}"
+            )
+        if response.status_code >= 500:
+            raise AITransientError(
+                f"Gemini returned HTTP {response.status_code}: "
+                f"{provider_error_detail(response_payload)}"
+            )
         if response.status_code == 404:
             raise AIProviderError(
                 "Gemini returned HTTP 404. "
@@ -456,7 +484,8 @@ def current_gemini_model_name(model: str) -> str:
 
 
 def gemini_paper_analysis_schema() -> dict[str, Any]:
-    text_property = {"type": "STRING"}
+    text_property = {"type": "string"}
+    nullable_text_property = {"type": ["string", "null"]}
     properties: dict[str, Any] = {
         "title": text_property,
         "research_question": text_property,
@@ -465,25 +494,25 @@ def gemini_paper_analysis_schema() -> dict[str, Any]:
         "results": text_property,
         "overclaim_risks": text_property,
         "connection_to_arnav": text_property,
-        "confidence": {"type": "NUMBER"},
+        "confidence": {"type": "number"},
         "evidence": {
-            "type": "ARRAY",
+            "type": "array",
             "items": {
-                "type": "OBJECT",
+                "type": "object",
                 "properties": {
                     "claim": text_property,
                     "evidence_text": text_property,
-                    "page_number": {"type": "INTEGER"},
+                    "page_number": {"type": "integer"},
                     "section_name": text_property,
                     "classification": {
-                        "type": "STRING",
+                        "type": "string",
                         "enum": [
                             EvidenceClassification.EXPLICIT.value,
                             EvidenceClassification.STRONG_INFERENCE.value,
                             EvidenceClassification.SPECULATIVE.value,
                         ],
                     },
-                    "confidence": {"type": "NUMBER"},
+                    "confidence": {"type": "number"},
                 },
                 "required": [
                     "claim",
@@ -497,9 +526,9 @@ def gemini_paper_analysis_schema() -> dict[str, Any]:
         },
     }
     for field_name in OPTIONAL_ANALYSIS_FIELDS:
-        properties[field_name] = text_property
+        properties[field_name] = nullable_text_property
     return {
-        "type": "OBJECT",
+        "type": "object",
         "properties": properties,
         "required": [
             "title",
@@ -517,17 +546,17 @@ def gemini_paper_analysis_schema() -> dict[str, Any]:
 
 def gemini_draft_review_schema() -> dict[str, Any]:
     return {
-        "type": "OBJECT",
+        "type": "object",
         "properties": {
-            "hallucination_check_passed": {"type": "BOOLEAN"},
-            "accuracy_check_passed": {"type": "BOOLEAN"},
-            "naturalness_check_passed": {"type": "BOOLEAN"},
-            "concise": {"type": "BOOLEAN"},
-            "overall_passed": {"type": "BOOLEAN"},
-            "summary": {"type": "STRING"},
-            "concerns": {"type": "ARRAY", "items": {"type": "STRING"}},
-            "suggested_edits": {"type": "ARRAY", "items": {"type": "STRING"}},
-            "confidence": {"type": "NUMBER"},
+            "hallucination_check_passed": {"type": "boolean"},
+            "accuracy_check_passed": {"type": "boolean"},
+            "naturalness_check_passed": {"type": "boolean"},
+            "concise": {"type": "boolean"},
+            "overall_passed": {"type": "boolean"},
+            "summary": {"type": "string"},
+            "concerns": {"type": "array", "items": {"type": "string"}},
+            "suggested_edits": {"type": "array", "items": {"type": "string"}},
+            "confidence": {"type": "number"},
         },
         "required": [
             "hallucination_check_passed",
@@ -569,11 +598,62 @@ def log_gemini_response(*, status_code: int, payload: dict[str, Any]) -> None:
     )
 
 
+def log_ai_raw_response(*, call_name: str, text: str) -> None:
+    logger.info(
+        "ai_raw_response",
+        extra={
+            "call_name": call_name,
+            "payload": {"raw_text": redact_secret_text(text)},
+        },
+    )
+
+
+def log_ai_json_repair(*, call_name: str, strategy: str) -> None:
+    logger.info(
+        "ai_json_repair_applied",
+        extra={
+            "call_name": call_name,
+            "json_repair_strategy": strategy,
+        },
+    )
+
+
 def redact_headers(headers: dict[str, str]) -> dict[str, str]:
     return {
         key: "<redacted>" if key.lower() in {"x-goog-api-key", "authorization"} else value
         for key, value in headers.items()
     }
+
+
+def redact_secret_text(text: str) -> str:
+    return SECRET_TEXT_RE.sub(r"\1\2[REDACTED]", text)
+
+
+def sleep_before_retry(
+    exc: AIProviderError,
+    *,
+    attempt: int,
+    total_attempts: int,
+) -> None:
+    if attempt >= total_attempts - 1:
+        return
+    delay = retry_delay_seconds(exc, attempt=attempt)
+    if delay <= 0:
+        return
+    logger.info(
+        "ai_provider_retry",
+        extra={
+            "attempt": attempt + 1,
+            "retry_delay_seconds": delay,
+            "reason": str(exc),
+        },
+    )
+    time.sleep(delay)
+
+
+def retry_delay_seconds(exc: AIProviderError, *, attempt: int) -> float:
+    base = 1.0 if isinstance(exc, AIRateLimitError) else 0.2
+    return float(min(8.0, base * (2**attempt)))
 
 
 def response_payload_for_log(response: AIHTTPResponseLike) -> dict[str, Any]:
@@ -607,7 +687,7 @@ def extract_gemini_text(payload: dict[str, Any]) -> str:
     joined = "\n".join(text for text in texts if isinstance(text, str)).strip()
     if not joined:
         raise AIResponseError("Gemini response did not include text.")
-    return strip_json_fence(joined)
+    return joined
 
 
 def strip_json_fence(text: str) -> str:
@@ -622,11 +702,19 @@ def strip_json_fence(text: str) -> str:
     return "\n".join(lines).strip()
 
 
-def validate_provider_json(text: str, *, paper_text: str) -> PaperAnalysisOutput:
+def validate_provider_json(
+    text: str,
+    *,
+    paper_text: str,
+    call_name: str = "paper_analysis",
+) -> PaperAnalysisOutput:
+    log_ai_raw_response(call_name=call_name, text=text)
     try:
-        parsed = json.loads(strip_json_fence(text))
+        parsed = parse_provider_json(text, call_name=call_name)
     except json.JSONDecodeError as exc:
-        raise AIResponseError("AI provider returned malformed JSON.") from exc
+        raise AIResponseError(
+            f"AI provider returned malformed JSON during {call_name}: {exc.msg}"
+        ) from exc
     try:
         output = PaperAnalysisOutput.model_validate(parsed)
     except ValidationError as exc:
@@ -635,15 +723,89 @@ def validate_provider_json(text: str, *, paper_text: str) -> PaperAnalysisOutput
     return output
 
 
-def validate_draft_review_json(text: str) -> DraftReviewOutput:
+def validate_draft_review_json(
+    text: str,
+    *,
+    call_name: str = "draft_review",
+) -> DraftReviewOutput:
+    log_ai_raw_response(call_name=call_name, text=text)
     try:
-        parsed = json.loads(strip_json_fence(text))
+        parsed = parse_provider_json(text, call_name=call_name)
     except json.JSONDecodeError as exc:
-        raise AIResponseError("AI provider returned malformed draft-review JSON.") from exc
+        raise AIResponseError(
+            f"AI provider returned malformed JSON during {call_name}: {exc.msg}"
+        ) from exc
     try:
         return DraftReviewOutput.model_validate(parsed)
     except ValidationError as exc:
         raise AIResponseError(f"AI draft-review output failed schema validation: {exc}") from exc
+
+
+def parse_provider_json(text: str, *, call_name: str) -> Any:
+    candidates: list[tuple[str, str]] = [("direct", strip_json_fence(text))]
+    extracted = extract_first_json_object(candidates[0][1])
+    if extracted and extracted != candidates[0][1]:
+        candidates.append(("extract_first_json_object", extracted))
+    for strategy, candidate in list(candidates):
+        repaired = remove_trailing_json_commas(candidate)
+        if repaired != candidate:
+            candidates.append((f"{strategy}+remove_trailing_commas", repaired))
+
+    last_error: json.JSONDecodeError | None = None
+    seen: set[str] = set()
+    for strategy, candidate in candidates:
+        stripped = candidate.strip()
+        if not stripped or stripped in seen:
+            continue
+        seen.add(stripped)
+        try:
+            parsed = json.loads(stripped)
+        except json.JSONDecodeError as exc:
+            last_error = exc
+            continue
+        if strategy != "direct":
+            log_ai_json_repair(call_name=call_name, strategy=strategy)
+        return parsed
+    if last_error is not None:
+        raise last_error
+    raise json.JSONDecodeError("No JSON object found", text, 0)
+
+
+def extract_first_json_object(text: str) -> str | None:
+    start = text.find("{")
+    if start < 0:
+        return None
+    depth = 0
+    in_string = False
+    escaped = False
+    for index, char in enumerate(text[start:], start=start):
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if char == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : index + 1]
+    return None
+
+
+def remove_trailing_json_commas(text: str) -> str:
+    previous = text
+    while True:
+        repaired = TRAILING_COMMA_RE.sub(r"\1", previous)
+        if repaired == previous:
+            return repaired
+        previous = repaired
 
 
 def validate_evidence_grounding(output: PaperAnalysisOutput, *, paper_text: str) -> None:

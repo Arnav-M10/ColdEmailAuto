@@ -374,16 +374,19 @@ def test_score_44_arxiv_paper_without_semantic_points_is_automatically_eligible(
     assert "ranking_exhausted" not in workflow.retrieval_result_json
 
 
-def test_ranking_exhausted_records_exact_rejection_reasons(
+def test_low_score_publication_is_still_selected_for_one_button_workflow(
     tmp_path: Path,
     monkeypatch: Any,
     caplog: Any,
 ) -> None:
     make_portfolio_available(monkeypatch)
+    make_manual_review_pass(monkeypatch)
+    make_paper_storage_local(monkeypatch, tmp_path)
+    monkeypatch.setattr("app.services.research_workflow.required_attachments_ready", lambda: True)
     with session_for(tmp_path) as session:
         candidate_record = candidate(session)
         candidate_record.openalex_author_id = "https://openalex.org/A1"
-        publication(
+        selected_publication = publication(
             session,
             candidate_record,
             title="Low Score Arxiv Candidate",
@@ -400,13 +403,10 @@ def test_ranking_exhausted_records_exact_rejection_reasons(
             )
 
     result = json.loads(workflow.retrieval_result_json)
-    rejected = result["rejected_publications"]
-    reasons = rejected[0]["reasons"]
-    expected_reason = "Overall outreach score 39 is below the automatic threshold of 40."
-    assert workflow.status == "WAITING_FOR_MANUAL_PAPER_SELECTION"
-    assert result["status"] == "ranking_exhausted"
-    assert expected_reason in reasons
-    assert any(expected_reason in record.getMessage() for record in caplog.records)
+    assert workflow.status == "READY_FOR_REVIEW"
+    assert workflow.selected_publication_id == selected_publication.id
+    assert result["status"] == "retrieved"
+    assert not any("automatic threshold" in record.getMessage() for record in caplog.records)
 
 
 def test_research_workflow_blocks_ready_state_when_attachments_are_missing(
@@ -520,15 +520,18 @@ def test_workflow_falls_back_when_top_pdf_retrieval_fails(
     assert "Second Ranked Working PDF" in result
 
 
-def test_workflow_waits_for_manual_selection_when_top_score_tie(
+def test_workflow_continues_with_top_ranked_paper_when_top_score_tie(
     tmp_path: Path,
     monkeypatch: Any,
 ) -> None:
     make_portfolio_available(monkeypatch)
+    make_manual_review_pass(monkeypatch)
+    make_paper_storage_local(monkeypatch, tmp_path)
+    monkeypatch.setattr("app.services.research_workflow.required_attachments_ready", lambda: True)
     with session_for(tmp_path) as session:
         candidate_record = candidate(session)
         candidate_record.openalex_author_id = "https://openalex.org/A1"
-        publication(
+        first = publication(
             session,
             candidate_record,
             title="Tied Eligible PDF One",
@@ -551,15 +554,13 @@ def test_workflow_waits_for_manual_selection_when_top_score_tie(
             pdf_fetcher=fetcher,
         )
 
-    assert workflow.status == "WAITING_FOR_MANUAL_PAPER_SELECTION"
-    assert workflow.current_stage == "Resolving tied publications"
-    assert workflow.selected_publication_id is None
-    assert "tied for the highest automatic outreach score" in (workflow.failure_reason or "")
-    assert "automatic_selection_tie" in workflow.retrieval_result_json
-    assert fetcher.urls == []
+    assert workflow.status == "READY_FOR_REVIEW"
+    assert workflow.selected_publication_id == first.id
+    assert "automatic_selection_tie" not in workflow.retrieval_result_json
+    assert fetcher.urls == ["https://arxiv.org/pdf/2501.12121"]
 
 
-def test_workflow_enters_manual_only_after_all_suitable_pdfs_fail(
+def test_workflow_fails_without_manual_selection_after_all_suitable_pdfs_fail(
     tmp_path: Path,
     monkeypatch: Any,
 ) -> None:
@@ -590,7 +591,7 @@ def test_workflow_enters_manual_only_after_all_suitable_pdfs_fail(
             pdf_fetcher=fetcher,
         )
 
-    assert workflow.status == "WAITING_FOR_MANUAL_PAPER_SELECTION"
+    assert workflow.status == "FAILED"
     assert workflow.selected_publication_id is None
     assert "All automatically suitable publications failed" in (workflow.failure_reason or "")
     assert fetcher.urls == [
