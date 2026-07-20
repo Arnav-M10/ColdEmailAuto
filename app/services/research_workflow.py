@@ -61,6 +61,7 @@ WORKFLOW_STAGES = [
 ]
 ANALYSIS_PROMPT_VERSION = "paper-analysis-v1"
 AUTOMATIC_SELECTION_TIE_EPSILON = 0.01
+MIN_AUTOMATIC_PUBLICATION_SCORE = 40.0
 PUBLICATION_SELECTION_WORKFLOW_REASONS = {
     "automatic_selection_tie",
     "ranking_exhausted",
@@ -142,6 +143,7 @@ def run_research_workflow(
                     "status": "ranking_exhausted",
                     "reviewed_publications": len(rejected),
                     "attempts": [],
+                    "rejected_publications": rejected,
                     "remaining_alternatives": 0,
                 },
             )
@@ -508,24 +510,29 @@ def ranked_publication_selections(
         )
         reasons.extend(usefulness.rejections)
         if reasons:
-            rejected.append(
-                {
-                    **retrieval_attempt_record(
-                        selection=RankedPublicationSelection(
-                            authorship=authorship,
-                            publication=publication,
-                            reasons=[],
-                            score=score,
-                            rank=rank,
-                            pdf_eligibility=eligibility,
-                        ),
-                        attempted=False,
-                        status="rejected_before_retrieval",
-                        rejection_reason="; ".join(reasons),
-                    ),
-                    "reasons": reasons,
-                },
+            rejected_selection = RankedPublicationSelection(
+                authorship=authorship,
+                publication=publication,
+                reasons=[],
+                score=score,
+                rank=rank,
+                pdf_eligibility=eligibility,
             )
+            rejection_record = {
+                **retrieval_attempt_record(
+                    selection=rejected_selection,
+                    attempted=False,
+                    status="rejected_before_retrieval",
+                    rejection_reason="; ".join(reasons),
+                ),
+                "reasons": reasons,
+            }
+            log_publication_rejection(
+                candidate=candidate,
+                selection=rejected_selection,
+                reasons=reasons,
+            )
+            rejected.append(rejection_record)
             continue
         suitable.append(
             RankedPublicationSelection(
@@ -552,11 +559,13 @@ def suitability_rejections(
         reasons.append("Confirmed candidate authorship was not found.")
     if publication.year is None or publication.year < RECENT_YEAR_THRESHOLD:
         reasons.append("Publication is not recent enough.")
-    components = _score_components(authorship)
     if any(str(warning).startswith("PORTFOLIO_INPUT_UNAVAILABLE") for warning in warnings):
         reasons.append("Portfolio input is unavailable, so automatic ranking is blocked.")
-    elif components.get("portfolio_similarity", 0.0) < 8.0:
-        reasons.append("Portfolio fit is too weak for automatic analysis.")
+    if authorship.score < MIN_AUTOMATIC_PUBLICATION_SCORE:
+        reasons.append(
+            f"Overall outreach score {authorship.score:g} is below the automatic "
+            f"threshold of {MIN_AUTOMATIC_PUBLICATION_SCORE:g}."
+        )
     eligibility = pdf_eligibility or pdf_eligibility_for_publication(publication)
     if not eligibility.eligible:
         reasons.append(eligibility.rejection_reason or "No lawful full text is available.")
@@ -624,6 +633,29 @@ def retrieval_attempt_record(
         "validation_result": "not_attempted" if not attempted else status,
         "rejection_reason": rejection_reason or eligibility.rejection_reason,
     }
+
+
+def log_publication_rejection(
+    *,
+    candidate: Candidate,
+    selection: RankedPublicationSelection,
+    reasons: list[str],
+) -> None:
+    logger.info(
+        "Publication rejected from automatic workflow: %s",
+        "; ".join(reasons),
+        extra={
+            "candidate_id": candidate.id,
+            "publication_id": selection.publication.id,
+            "publication_title": selection.publication.title,
+            "rank": selection.rank,
+            "selection_score": selection.score,
+            "overall_outreach_score": selection.authorship.score,
+            "rejection_reasons": reasons,
+            "pdf_eligibility_type": selection.pdf_eligibility.source_type,
+            "pdf_eligible": selection.pdf_eligibility.eligible,
+        },
+    )
 
 
 def log_workflow_transition(

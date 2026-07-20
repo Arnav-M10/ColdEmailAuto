@@ -1,3 +1,5 @@
+import json
+import logging
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -219,6 +221,27 @@ def make_portfolio_available(monkeypatch: Any) -> None:
     )
 
 
+def make_manual_review_pass(monkeypatch: Any) -> None:
+    monkeypatch.setattr(
+        "app.services.research_workflow.manual_review_context",
+        lambda *args, **kwargs: SimpleNamespace(
+            approval_errors=[],
+            sentence_checks=[],
+        ),
+    )
+
+
+def make_paper_storage_local(monkeypatch: Any, tmp_path: Path) -> None:
+    monkeypatch.setattr(
+        "app.services.papers.get_settings",
+        lambda: SimpleNamespace(
+            max_pdf_size_mb=25,
+            project_root=tmp_path,
+            resolved_runtime_data_dir=tmp_path / "data",
+        ),
+    )
+
+
 def test_auto_selection_skips_high_score_without_lawful_full_text(tmp_path: Path) -> None:
     with session_for(tmp_path) as session:
         candidate_record = candidate(session)
@@ -251,6 +274,8 @@ def test_research_workflow_persists_selected_paper_analysis_and_draft(
     monkeypatch: Any,
 ) -> None:
     make_portfolio_available(monkeypatch)
+    make_manual_review_pass(monkeypatch)
+    make_paper_storage_local(monkeypatch, tmp_path)
     monkeypatch.setattr(
         "app.services.research_workflow.required_attachments_ready",
         lambda: True,
@@ -286,6 +311,97 @@ def test_research_workflow_persists_selected_paper_analysis_and_draft(
         assert session.get(PaperAnalysis, workflow.analysis_id) is not None
         assert session.get(Draft, workflow.draft_id) is not None
         assert session.query(EvidenceItem).count() == 1
+
+
+def test_score_44_arxiv_paper_without_semantic_points_is_automatically_eligible(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    make_portfolio_available(monkeypatch)
+    make_manual_review_pass(monkeypatch)
+    make_paper_storage_local(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        "app.services.research_workflow.required_attachments_ready",
+        lambda: True,
+    )
+    with session_for(tmp_path) as session:
+        candidate_record = candidate(session)
+        candidate_record.openalex_author_id = "https://openalex.org/A1"
+        selected_publication = publication(
+            session,
+            candidate_record,
+            title="Spectroscopic Survey Follow-up for Fast Transients",
+            score=44.0,
+            arxiv_id="2502.44444",
+        )
+        authorship = (
+            session.query(Authorship)
+            .filter(
+                Authorship.candidate_id == candidate_record.id,
+                Authorship.publication_id == selected_publication.id,
+            )
+            .one()
+        )
+        authorship.score_details_json = (
+            '{"components":{"portfolio_similarity":0.0,'
+            '"confirmed_author_role":16.0,"author_count":10.0,'
+            '"recency":8.0,"lawful_pdf_availability":7.0,'
+            '"confirmed_author_confidence":3.0},'
+            '"reasons":["Confirmed author is first author.","Author count: 2.",'
+            '"Recent publication from 2025.","Lawful retrievable PDF source is available."]}'
+        )
+        authorship.warnings_json = "[]"
+        fetcher = FakePDFFetcher("score-44-arxiv")
+
+        workflow = run_research_workflow(
+            session,
+            candidate=candidate_record,
+            provider=mock_provider(),
+            pdf_fetcher=fetcher,
+        )
+
+    assert workflow.status == "READY_FOR_REVIEW"
+    assert workflow.selected_publication_id == selected_publication.id
+    assert workflow.paper_file_id is not None
+    assert workflow.analysis_id is not None
+    assert workflow.draft_id is not None
+    assert fetcher.urls == ["https://arxiv.org/pdf/2502.44444"]
+    assert "ranking_exhausted" not in workflow.retrieval_result_json
+
+
+def test_ranking_exhausted_records_exact_rejection_reasons(
+    tmp_path: Path,
+    monkeypatch: Any,
+    caplog: Any,
+) -> None:
+    make_portfolio_available(monkeypatch)
+    with session_for(tmp_path) as session:
+        candidate_record = candidate(session)
+        candidate_record.openalex_author_id = "https://openalex.org/A1"
+        publication(
+            session,
+            candidate_record,
+            title="Low Score Arxiv Candidate",
+            score=39.0,
+            arxiv_id="2502.39000",
+        )
+
+        with caplog.at_level(logging.INFO, logger="professor_outreach.workflow"):
+            workflow = run_research_workflow(
+                session,
+                candidate=candidate_record,
+                provider=mock_provider(),
+                pdf_fetcher=FakePDFFetcher("should-not-fetch"),
+            )
+
+    result = json.loads(workflow.retrieval_result_json)
+    rejected = result["rejected_publications"]
+    reasons = rejected[0]["reasons"]
+    expected_reason = "Overall outreach score 39 is below the automatic threshold of 40."
+    assert workflow.status == "WAITING_FOR_MANUAL_PAPER_SELECTION"
+    assert result["status"] == "ranking_exhausted"
+    assert expected_reason in reasons
+    assert any(expected_reason in record.getMessage() for record in caplog.records)
 
 
 def test_research_workflow_blocks_ready_state_when_attachments_are_missing(
@@ -326,6 +442,8 @@ def test_workflow_attempts_direct_pdf_before_manual_selection(
     monkeypatch: Any,
 ) -> None:
     make_portfolio_available(monkeypatch)
+    make_manual_review_pass(monkeypatch)
+    make_paper_storage_local(monkeypatch, tmp_path)
     monkeypatch.setattr("app.services.research_workflow.required_attachments_ready", lambda: True)
     with session_for(tmp_path) as session:
         candidate_record = candidate(session)
@@ -357,6 +475,8 @@ def test_workflow_falls_back_when_top_pdf_retrieval_fails(
     monkeypatch: Any,
 ) -> None:
     make_portfolio_available(monkeypatch)
+    make_manual_review_pass(monkeypatch)
+    make_paper_storage_local(monkeypatch, tmp_path)
     monkeypatch.setattr("app.services.research_workflow.required_attachments_ready", lambda: True)
     with session_for(tmp_path) as session:
         candidate_record = candidate(session)

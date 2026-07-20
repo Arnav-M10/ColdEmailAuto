@@ -37,6 +37,8 @@ data/cache/*
 !data/cache/.gitkeep
 data/exports/*
 !data/exports/.gitkeep
+data/papers/*
+!data/papers/.gitkeep
 
 # Personal documents and downloaded papers
 assets/*
