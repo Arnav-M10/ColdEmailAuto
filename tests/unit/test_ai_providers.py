@@ -203,7 +203,7 @@ def test_gemini_uses_current_official_rest_request_shape() -> None:
     assert "responseMimeType" not in generation_config
     assert "responseSchema" not in generation_config
     response_format = generation_config["responseFormat"]["text"]
-    assert response_format["mimeType"] == "application/json"
+    assert response_format["mimeType"] == "APPLICATION_JSON"
     assert response_format["schema"]["type"] == "object"
     assert response_format["schema"]["properties"]["evidence"]["type"] == "array"
     assert "contents" in sent["json"]

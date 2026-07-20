@@ -292,7 +292,7 @@ class GeminiProvider:
                 "maxOutputTokens": self.config.max_tokens,
                 "responseFormat": {
                     "text": {
-                        "mimeType": "application/json",
+                        "mimeType": "APPLICATION_JSON",
                         "schema": schema,
                     },
                 },
